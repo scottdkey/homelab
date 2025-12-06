@@ -17,7 +17,7 @@ pub struct SmbServerConfig {
 }
 
 pub struct EnvConfig {
-    pub tailnet_base: String,
+    pub _tailnet_base: String,
     pub hosts: HashMap<String, HostConfig>,
     pub smb_servers: HashMap<String, SmbServerConfig>,
 }
@@ -172,19 +172,10 @@ pub fn load_env_config(_homelab_dir: &Path) -> Result<EnvConfig> {
     }
 
     Ok(EnvConfig {
-        tailnet_base,
+        _tailnet_base: tailnet_base,
         hosts,
         smb_servers,
     })
-}
-
-pub fn list_available_hosts(config: &EnvConfig) {
-    println!("Available hosts (from .env):");
-    let mut hosts: Vec<&String> = config.hosts.keys().collect();
-    hosts.sort();
-    for host in hosts {
-        println!("  - {}", host);
-    }
 }
 
 pub fn get_default_username() -> String {
@@ -199,16 +190,6 @@ pub fn get_os() -> &'static str {
 
 pub fn get_arch() -> &'static str {
     env::consts::ARCH
-}
-
-pub fn get_home_dir() -> Result<PathBuf> {
-    env::var("HOME")
-        .or_else(|_| env::var("USERPROFILE")) // Windows fallback
-        .map(PathBuf::from)
-        .or_else(|_| {
-            // Last resort: try to get from current user
-            Ok(PathBuf::from("~"))
-        })
 }
 
 pub fn get_npm_url() -> Option<String> {

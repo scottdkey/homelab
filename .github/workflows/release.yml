@@ -10,6 +10,12 @@ on:
         required: true
         type: string
 
+# Ensure workflow has permissions to write packages
+permissions:
+  contents: read
+  packages: write
+  actions: write
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/pia-vpn
@@ -153,7 +159,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Determine version tag
         id: version
