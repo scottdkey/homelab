@@ -6,7 +6,7 @@ If you're getting a `403 Forbidden` error when pushing to GHCR, follow these ste
 
 **This is the most common cause of 403 errors!**
 
-1. Go to your package page: https://github.com/users/scottdkey/packages/container/pia-vpn
+1. Go to your package page: https://github.com/users/scottdkey/packages/container/vpn
    - If the package doesn't exist yet, it will be created on first successful push
    - If you see "This package does not exist", that's fine - it will be created automatically
    
