@@ -1,0 +1,15 @@
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
