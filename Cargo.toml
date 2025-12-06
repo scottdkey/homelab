@@ -15,6 +15,7 @@ clap = { version = "4.5.53", features = ["derive"] }
 dotenv = "0.15"
 anyhow = "1.0.100"
 which = "8.0"
+chrono = "0.4"
 
 [dev-dependencies]
 cargo-watch = "8.5"

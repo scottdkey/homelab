@@ -8,9 +8,18 @@ pub struct HostConfig {
     pub tailscale: Option<String>,
 }
 
+pub struct SmbServerConfig {
+    pub host: String,
+    pub shares: Vec<String>, // Multiple shares per server
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub options: Option<String>,
+}
+
 pub struct EnvConfig {
     pub tailnet_base: String,
     pub hosts: HashMap<String, HostConfig>,
+    pub smb_servers: HashMap<String, SmbServerConfig>,
 }
 
 pub fn find_homelab_dir() -> Result<PathBuf> {
@@ -53,6 +62,7 @@ pub fn load_env_config(homelab_dir: &Path) -> Result<EnvConfig> {
 
     // Parse host configurations
     let mut hosts = HashMap::new();
+    let mut smb_servers = HashMap::new();
     let env_vars: Vec<(String, String)> = env::vars().collect();
 
     for (key, value) in env_vars {
@@ -72,12 +82,72 @@ pub fn load_env_config(homelab_dir: &Path) -> Result<EnvConfig> {
                 });
                 config.tailscale = Some(value);
             }
+        } else if let Some(server_name) = key.strip_prefix("SMB_") {
+            // Parse SMB server configuration
+            // Format: SMB_<SERVERNAME>_<PROPERTY>
+            // Properties: HOST, SHARES (comma-separated), USERNAME, PASSWORD, OPTIONS
+            let parts: Vec<&str> = server_name.split('_').collect();
+            if parts.len() >= 2 {
+                let server_name_lower = parts[0].to_lowercase();
+                let property = parts[1..].join("_");
+
+                let server_config =
+                    smb_servers
+                        .entry(server_name_lower)
+                        .or_insert_with(|| SmbServerConfig {
+                            host: String::new(),
+                            shares: Vec::new(),
+                            username: None,
+                            password: None,
+                            options: None,
+                        });
+
+                match property.as_str() {
+                    "HOST" => server_config.host = value,
+                    "SHARES" => {
+                        // Parse comma-separated shares
+                        server_config.shares = value
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                    }
+                    "SHARE" => {
+                        // Legacy support: single share (adds to shares vec)
+                        let share = value.trim().to_string();
+                        if !share.is_empty() && !server_config.shares.contains(&share) {
+                            server_config.shares.push(share);
+                        }
+                    }
+                    "USERNAME" => server_config.username = Some(value),
+                    "PASSWORD" => server_config.password = Some(value),
+                    "OPTIONS" => server_config.options = Some(value),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // Validate SMB server configurations
+    for (name, config) in &smb_servers {
+        if config.host.is_empty() {
+            anyhow::bail!(
+                "SMB server '{}' is missing required configuration (HOST)",
+                name
+            );
+        }
+        if config.shares.is_empty() {
+            anyhow::bail!(
+                "SMB server '{}' is missing required configuration (SHARES or SHARE)",
+                name
+            );
         }
     }
 
     Ok(EnvConfig {
         tailnet_base,
         hosts,
+        smb_servers,
     })
 }
 
@@ -102,4 +172,14 @@ pub fn get_os() -> &'static str {
 
 pub fn get_arch() -> &'static str {
     env::consts::ARCH
+}
+
+pub fn get_home_dir() -> Result<PathBuf> {
+    env::var("HOME")
+        .or_else(|_| env::var("USERPROFILE")) // Windows fallback
+        .map(PathBuf::from)
+        .or_else(|_| {
+            // Last resort: try to get from current user
+            Ok(PathBuf::from("~"))
+        })
 }

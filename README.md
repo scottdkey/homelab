@@ -103,6 +103,27 @@ You can also use the short form:
 hal ssh bellerophon -f
 ```
 
+**Copy SSH keys for passwordless authentication:**
+
+To copy your SSH public key to a remote host for passwordless authentication:
+
+```bash
+hal ssh bellerophon --keys
+```
+
+This will:
+- Prompt for username (or use default)
+- Use `ssh-copy-id` to copy your public key to the remote host
+- Prompt for password once during key copy
+- After this, future connections will use key-based authentication
+
+**Automatic authentication method selection:**
+
+The SSH command now automatically:
+- First tries key-based authentication (no password prompt)
+- Falls back to password authentication if keys aren't set up
+- Prompts for username/password only when needed
+
 ### Install Tailscale
 
 Install Tailscale on your system (supports macOS, Linux, and Windows):
@@ -115,6 +136,29 @@ This will:
 - Detect your operating system
 - Use the appropriate package manager (Homebrew on macOS, apt/yum/dnf on Linux)
 - Provide instructions for starting Tailscale
+
+### Provision a Remote Host
+
+Provision a remote host with Docker, Tailscale, and Portainer:
+
+```bash
+hal provision bellerophon
+```
+
+This will:
+- Connect to the host via SSH (prompts for username and password)
+- Install Docker if not already installed
+- Install Tailscale if not already installed
+- Install Portainer Agent (or Portainer CE with `--portainer-host` flag)
+- Handle all sudo prompts interactively
+
+**Install Portainer CE instead of Agent:**
+
+```bash
+hal provision bellerophon --portainer-host
+```
+
+This installs the full Portainer CE with web UI instead of just the agent.
 
 ## Development
 

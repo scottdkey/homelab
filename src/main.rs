@@ -1,4 +1,7 @@
+mod backup;
 mod config;
+mod provision;
+mod smb;
 mod ssh;
 mod tailscale;
 
@@ -25,6 +28,9 @@ enum Commands {
         /// Remove offending host keys from known_hosts before connecting
         #[arg(long, short = 'f')]
         fix_keys: bool,
+        /// Copy SSH public key to remote host for passwordless authentication
+        #[arg(long)]
+        keys: bool,
         /// Additional SSH arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         ssh_args: Vec<String>,
@@ -34,12 +40,49 @@ enum Commands {
         #[command(subcommand)]
         command: TailscaleCommands,
     },
+    /// Provision a remote host (install Docker, Tailscale, Portainer)
+    Provision {
+        /// Hostname to provision
+        hostname: String,
+        /// Install Portainer CE instead of Portainer Agent
+        #[arg(long)]
+        portainer_host: bool,
+    },
+    /// Setup and mount SMB shares on a remote host
+    Smb {
+        /// Hostname to setup SMB mounts on
+        hostname: String,
+        /// Unmount and remove SMB mounts
+        #[arg(long)]
+        uninstall: bool,
+    },
+    /// Backup and restore Docker Compose data
+    Backup {
+        /// Hostname to backup/restore on
+        hostname: String,
+        #[command(subcommand)]
+        command: BackupCommands,
+    },
 }
 
 #[derive(Subcommand)]
 enum TailscaleCommands {
     /// Install Tailscale
     Install,
+}
+
+#[derive(Subcommand)]
+enum BackupCommands {
+    /// Create a backup of all Docker volumes on the host
+    Create,
+    /// List available backups
+    List,
+    /// Restore from a backup
+    Restore {
+        /// Optional: specific backup name (timestamp). If not provided, lists available backups
+        #[arg(short, long)]
+        backup: Option<String>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -50,15 +93,47 @@ fn main() -> Result<()> {
             hostname,
             user,
             fix_keys,
+            keys,
             ssh_args,
         } => {
             let homelab_dir = config::find_homelab_dir()?;
             let config = config::load_env_config(&homelab_dir)?;
-            ssh::ssh_to_host(&hostname, user, fix_keys, &ssh_args, &config)?;
+            ssh::ssh_to_host(&hostname, user, fix_keys, keys, &ssh_args, &config)?;
         }
         Commands::Tailscale { command } => match command {
             TailscaleCommands::Install => tailscale::install_tailscale()?,
         },
+        Commands::Provision {
+            hostname,
+            portainer_host,
+        } => {
+            let homelab_dir = config::find_homelab_dir()?;
+            let config = config::load_env_config(&homelab_dir)?;
+            provision::provision_host(&hostname, portainer_host, &config)?;
+        }
+        Commands::Smb {
+            hostname,
+            uninstall,
+        } => {
+            let homelab_dir = config::find_homelab_dir()?;
+            let config = config::load_env_config(&homelab_dir)?;
+            if uninstall {
+                smb::uninstall_smb_mounts(&hostname, &config)?;
+            } else {
+                smb::setup_smb_mounts(&hostname, &config)?;
+            }
+        }
+        Commands::Backup { hostname, command } => {
+            let homelab_dir = config::find_homelab_dir()?;
+            let config = config::load_env_config(&homelab_dir)?;
+            match command {
+                BackupCommands::Create => backup::backup_host(&hostname, &config)?,
+                BackupCommands::List => backup::list_backups(&hostname, &config)?,
+                BackupCommands::Restore { backup } => {
+                    backup::restore_host(&hostname, backup.as_deref(), &config)?
+                }
+            }
+        }
     }
 
     Ok(())

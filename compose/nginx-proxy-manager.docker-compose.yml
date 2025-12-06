@@ -7,5 +7,11 @@ services:
       - "81:81"
       - "443:443"
     volumes:
-      - ./data:/data
-      - ./letsencrypt:/etc/letsencrypt
+      - nginx_proxy_manager_data:/data
+      - nginx_proxy_manager_letsencrypt:/etc/letsencrypt
+
+volumes:
+  nginx_proxy_manager_data:
+    name: nginx_proxy_manager_data
+  nginx_proxy_manager_letsencrypt:
+    name: nginx_proxy_manager_letsencrypt
