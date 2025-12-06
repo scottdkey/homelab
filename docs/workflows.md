@@ -56,16 +56,16 @@ The Docker image is automatically pushed to GitHub Container Registry:
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/scottdkey/vpn:latest
+docker pull ghcr.io/<your-username>/vpn:latest
 
 # Or use a specific version
-docker pull ghcr.io/scottdkey/vpn:v1.0.0
+docker pull ghcr.io/<your-username>/vpn:v1.0.0
 ```
 
 Make sure you're authenticated with GitHub Container Registry:
 
 ```bash
-echo $GITHUB_TOKEN | docker login ghcr.io -u scottdkey --password-stdin
+echo $GITHUB_TOKEN | docker login ghcr.io -u <your-username> --password-stdin
 ```
 
 ## Permissions
@@ -87,7 +87,7 @@ cargo build --release
 
 # Build Docker image
 cd openvpn-container
-docker build -t ghcr.io/scottdkey/vpn:latest .
+docker build -t ghcr.io/<your-username>/vpn:latest .
 ```
 
 ## Troubleshooting

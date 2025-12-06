@@ -33,7 +33,7 @@ This will:
    SSH_MAPLE_HOST="10.10.10.130"
    SSH_MAPLE_USER="skey"
    SSH_BELLEROPHON_HOST="10.10.10.14"
-   SSH_BELLEROPHON_USER="scottkey"
+   SSH_BELLEROPHON_USER="username"
    ```
 
 ## Managing Configuration

@@ -1,8 +1,8 @@
 # HAL - Homelab Automation Layer
 
-[![Build Status](https://github.com/scottdkey/homelab/workflows/Build%20and%20Push/badge.svg)](https://github.com/scottdkey/homelab/actions/workflows/build.yml)
-[![Release](https://github.com/scottdkey/homelab/workflows/Release/badge.svg)](https://github.com/scottdkey/homelab/actions/workflows/release.yml)
-[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fscottdkey%2Fvpn-blue)](https://github.com/users/scottdkey/packages/container/package/vpn)
+[![Build Status](https://github.com/<your-username>/homelab/workflows/Build%20and%20Push/badge.svg)](https://github.com/<your-username>/homelab/actions/workflows/build.yml)
+[![Release](https://github.com/<your-username>/homelab/workflows/Release/badge.svg)](https://github.com/<your-username>/homelab/actions/workflows/release.yml)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2F%3Cyour-username%3E%2Fvpn-blue)](https://github.com/users/<your-username>/packages/container/package/vpn)
 
 A Rust-based CLI tool for managing your homelab infrastructure, with scripts for SSH setup and automation.
 
@@ -16,19 +16,19 @@ Download and run the install script from GitHub:
 
 **On Unix/macOS/Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/<your-username>/homelab/main/scripts/install.sh | bash
 ```
 
 Or download and run manually:
 ```bash
-curl -O https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/install.sh
+curl -O https://raw.githubusercontent.com/<your-username>/homelab/main/scripts/install.sh
 chmod +x install.sh
 ./install.sh
 ```
 
 **On Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/<your-username>/homelab/main/scripts/install.ps1 | iex
 ```
 
 The install scripts will:

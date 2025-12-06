@@ -3,8 +3,9 @@ services:
     # Combined OpenVPN + Privoxy container
     # Handles VPN connection and provides HTTP proxy
     # For Portainer deployment - uses image from GitHub Container Registry
-    # Set VPN_IMAGE in .env or use default: ghcr.io/scottdkey/vpn:latest
-    image: ghcr.io/scottdkey/vpn:latest
+    # Set VPN_IMAGE environment variable or use default from your GitHub username
+    # Example: VPN_IMAGE=ghcr.io/username/vpn:latest
+    image: ${VPN_IMAGE:-ghcr.io/${GITHUB_USER}/vpn:latest}
     container_name: openvpn-pia
     cap_add:
       - NET_ADMIN
@@ -13,15 +14,15 @@ services:
       - /dev/net/tun:/dev/net/tun
     environment:
       - TZ=Etc/UTC
-      # Set UPDATE_CONFIGS=true to download fresh PIA configs on startup
-      - UPDATE_CONFIGS=${UPDATE_CONFIGS:-false}
+      # Set UPDATE_CONFIGS=true to automatically download PIA configs on startup
+      # This is recommended for first-time setup
+      - UPDATE_CONFIGS=${UPDATE_CONFIGS:-true}
     volumes:
       # Mount OpenVPN config and auth files from user's home directory
-      # Set USER environment variable to specify which user's home directory to use
-      # Defaults to current user if not set: /home/${USER:-$USER}/config/vpn
-      # Example: USER=testUser -> /home/testUser/config/vpn
-      # If UPDATE_CONFIGS=true, remove :ro to allow downloading configs
-      - /home/${USER}/config/vpn:/config:ro
+      # REQUIRED: Set USER environment variable in Portainer to your username
+      # Example: USER=test-user -> /home/test-user/config/vpn
+      # If UPDATE_CONFIGS=true, volume must be writable (no :ro)
+      - /home/${USER}/config/vpn:/config
       - openvpn_logs:/var/log/openvpn
     ports:
       # HTTP proxy port (Privoxy)

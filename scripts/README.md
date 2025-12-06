@@ -37,11 +37,11 @@ Configures SSH hosts in `~/.ssh/config` from your `.env` file.
 **Configuration in `.env`:**
 ```bash
 SSH_MAPLE_HOST="10.10.10.130"
-SSH_MAPLE_USER="skey"
+SSH_MAPLE_USER="test-user"
 SSH_MAPLE_PORT="22"
 
 SSH_BELLEROPHON_HOST="10.10.10.14"
-SSH_BELLEROPHON_USER="scottkey"
+SSH_BELLEROPHON_USER="username"
 ```
 
 This creates SSH config entries that allow you to connect with:
@@ -90,5 +90,5 @@ You can also run scripts directly from GitHub:
 curl -fsSL https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/setup-ssh-hosts.sh | bash
 
 # Setup SSH keys
-curl -fsSL https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/setup-ssh-keys.sh | bash -s maple
+curl -fsSL https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/setup-ssh-keys.sh | bash -s <hostname>
 ```
