@@ -1,5 +1,65 @@
 ---
 services:
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - sabnzbd_data:/config
+      - ${DOWNLOADS_PATH}:/downloads #optional
+    ports:
+      - 8080:8080
+    networks:
+      - vpn_network
+    restart: unless-stopped
+  transmission:
+    image: lscr.io/linuxserver/transmission:latest
+    container_name: transmission
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - transmission_data:/config
+      - ${DOWNLOADS_PATH}:/downloads #optional
+    ports:
+      - 9091:9091
+    networks:
+      - vpn_network
+    restart: unless-stopped
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - qbittorrent_data:/config
+      - ${DOWNLOADS_PATH}:/downloads #optional
+    ports:
+      - 8080:8080
+    networks:
+      - vpn_network
+    restart: unless-stopped
+  deluge:
+    image: lscr.io/linuxserver/deluge:latest
+    container_name: deluge
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Etc/UTC
+    volumes:
+      - deluge_data:/config
+      - ${DOWNLOADS_PATH}:/downloads #optional
+    ports:
+      - 8112:8112
+    networks:
+      - vpn_network
+    restart: unless-stopped
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
     container_name: sonarr
@@ -12,8 +72,8 @@ services:
       - HTTPS_PROXY=http://gluetun:8888
     volumes:
       - sonarr_data:/config
-      - /path/to/tvseries:/tv #optional
-      - /path/to/downloadclient-downloads:/downloads #optional
+      - ${TV_PATH}:/media/tv #optional
+      - ${DOWNLOADS_PATH}:/downloads #optional
     ports:
       - 8989:8989
     networks:
@@ -31,8 +91,8 @@ services:
       - HTTPS_PROXY=http://gluetun:8888
     volumes:
       - radarr_data:/config
-      - /mnt/smb/maple/data/media/movies:/movies #optional
-      - /mnt/smb/maple/data/downloads:/downloads #optional
+      - ${MOVIES_PATH}:/media/movies #optional
+      - ${DOWNLOADS_PATH}:/downloads #optional
     ports:
       - 7878:7878
     networks:
@@ -50,8 +110,8 @@ services:
       - HTTPS_PROXY=http://gluetun:8888
     volumes:
       - radarr_4k_data:/config
-      - /mnt/smb/maple/data/media/4k:/movies #optional
-      - /mnt/smb/maple/data/downloads:/downloads #optional
+      - ${4K_MOVIES_PATH}:/media/movies #optional
+      - ${DOWNLOADS_PATH}:/downloads #optional
     ports:
       - 7879:7878
     networks:
@@ -86,11 +146,11 @@ services:
       - HTTPS_PROXY=http://gluetun:8888
     volumes:
       - bazarr_data:/config
-      - /mnt/smb/maple/data/media/movies:/movies #optional
-      - /mnt/smb/maple/data/media/tv:/tv #optional
-      - /mnt/smb/maple/data/media/4k:/4k #optional
-      - /mnt/smb/maple/data/downloads:/downloads #optional
-      - /mnt/smb/maple/data/music:/music #optional
+      - ${MOVIES_PATH}:/media/movies #optional
+      - ${TV_PATH}:/media/tv #optional
+      - ${4K_PATH}:/media/4k #optional
+      - ${DOWNLOADS_PATH}:/downloads #optional
+      - ${MUSIC_PATH}:/media/music #optional
     ports:
       - 6767:6767
     networks:

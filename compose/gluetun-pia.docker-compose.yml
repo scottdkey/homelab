@@ -11,11 +11,12 @@ services:
       - VPN_TYPE=openvpn
       - OPENVPN_USER=${PIA_USERNAME}
       - OPENVPN_PASSWORD=${PIA_PASSWORD}
-      # Optional: Set specific region (e.g., US East, US West, etc.)
-      # - SERVER_REGIONS=US East
+      # Set specific server location (Montreal, Canada)
+      # Using exact hostname for reliability
+      - SERVER_HOSTNAMES=ca-montreal.privacy.network
       # Optional: Enable port forwarding for PIA
-      - PORT_FORWARDING=on
-      - PORT_FORWARDING_STATUS_FILE=/tmp/gluetun/forwarded_port
+      - VPN_PORT_FORWARDING=on
+      - VPN_PORT_FORWARDING_STATUS_FILE=/tmp/gluetun/forwarded_port
       - TZ=Etc/UTC
       # Enable HTTP proxy for other containers
       - HTTP_CONTROL_SERVER_LOG=on
