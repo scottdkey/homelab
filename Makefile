@@ -48,10 +48,18 @@ build:
 		if ! command -v cargo >/dev/null 2>&1; then \
 			echo "Cargo not found. Installing Rust..."; \
 			curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable; \
-			. $$HOME/.cargo/env && cargo --version; \
 		fi; \
-		. $$HOME/.cargo/env 2>/dev/null || true; \
-		cargo build --release; \
+		if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then \
+			echo "C compiler not found. Installing build-essential..."; \
+			if command -v apt-get >/dev/null 2>&1; then \
+				sudo apt-get update && sudo apt-get install -y build-essential; \
+			elif command -v yum >/dev/null 2>&1; then \
+				sudo yum install -y gcc gcc-c++ make; \
+			elif command -v dnf >/dev/null 2>&1; then \
+				sudo dnf install -y gcc gcc-c++ make; \
+			fi; \
+		fi; \
+		export PATH="$$HOME/.cargo/bin:$$PATH" && cargo build --release; \
 	fi
 
 # Detect host platform
