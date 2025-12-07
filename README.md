@@ -71,6 +71,7 @@ This will:
 - **[Usage Guide](docs/usage.md)** - Common commands and operations
 - **[Development Guide](docs/development.md)** - Building, testing, and contributing
 - **[Workflows](docs/workflows.md)** - GitHub Actions CI/CD documentation
+- **[IPv6 Setup](docs/ipv6-setup.md)** - Enabling IPv6 support in VPN container
 
 ## Quick Start
 

@@ -158,6 +158,15 @@ fi
 
 echo "Using OpenVPN config: $OVPN_CONFIG"
 
+# Check if IPv6 is available in the container
+if ip -6 addr show >/dev/null 2>&1; then
+    echo "✓ IPv6 is available in container"
+    # IPv6 is available, OpenVPN can use IPv6 routes from config
+else
+    echo "⚠ IPv6 not available in container - IPv6 routes in OpenVPN config will be ignored"
+    echo "  To enable IPv6: Configure Docker daemon with IPv6 and set enable_ipv6: true in network"
+fi
+
 # Check for auth file
 if [ ! -f /config/auth.txt ]; then
     echo "⚠ Warning: /config/auth.txt not found"
