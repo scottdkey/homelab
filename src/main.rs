@@ -30,6 +30,7 @@ fn check_for_updates() {
 #[derive(Parser)]
 #[command(name = "hal")]
 #[command(about = "Homelab Automation Layer - CLI tool for managing homelab infrastructure", long_about = None)]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

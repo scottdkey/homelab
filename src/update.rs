@@ -142,6 +142,46 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
         .context("Failed to download update")?;
 
     if !response.status().is_success() {
+        // If the specific asset doesn't exist, try to get the release assets list
+        // and find a matching one
+        if response.status() == 404 {
+            // Try to fetch release assets and find a matching one
+            let release_url = format!(
+                "{}/repos/{}/{}/releases/tags/{}",
+                GITHUB_API_BASE, REPO_OWNER, REPO_NAME, version
+            );
+            let release_response = client
+                .get(&release_url)
+                .send()
+                .context("Failed to fetch release info")?;
+
+            if release_response.status().is_success() {
+                #[derive(Deserialize)]
+                struct ReleaseInfo {
+                    assets: Vec<AssetInfo>,
+                }
+                #[derive(Deserialize)]
+                struct AssetInfo {
+                    name: String,
+                    browser_download_url: String,
+                }
+
+                let release_info: ReleaseInfo = release_response
+                    .json()
+                    .context("Failed to parse release info")?;
+
+                // Try to find a matching asset
+                let matching_asset = release_info
+                    .assets
+                    .iter()
+                    .find(|asset| asset.name.contains(&platform) && asset.name.contains(&arch));
+
+                if let Some(asset) = matching_asset {
+                    // Use the found asset URL
+                    return download_and_install_from_url(&asset.browser_download_url, version);
+                }
+            }
+        }
         anyhow::bail!("Failed to download update: HTTP {}", response.status());
     }
 
@@ -151,13 +191,23 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
         .context("Failed to write download")?;
     drop(file);
 
+    // Continue with extraction and installation
+    extract_and_install(&temp_archive, &current_exe, &backup_path, version)
+}
+
+fn extract_and_install(
+    temp_archive: &std::path::Path,
+    current_exe: &std::path::Path,
+    backup_path: &std::path::Path,
+    version: &str,
+) -> Result<()> {
     println!("Extracting archive...");
 
     // Extract the archive
     let temp_dir = std::env::temp_dir().join(format!("hal-update-extract-{}", version));
     local::create_dir_all(&temp_dir)?;
 
-    let extracted_binary = if cfg!(target_os = "windows") {
+    let extracted_binary: std::path::PathBuf = if cfg!(target_os = "windows") {
         // Extract ZIP file
         let archive = std::fs::File::open(&temp_archive).context("Failed to open archive")?;
         let mut zip = zip::ZipArchive::new(archive).context("Failed to read ZIP archive")?;
@@ -251,4 +301,42 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
     println!("  Please restart the CLI to use the new version.");
 
     Ok(())
+}
+
+/// Helper function to download and install from a specific URL
+fn download_and_install_from_url(download_url: &str, version: &str) -> Result<()> {
+    println!("Downloading from: {}", download_url);
+
+    // Get current executable path
+    let current_exe = env::current_exe().context("Failed to get current executable path")?;
+    let extension = if cfg!(target_os = "windows") {
+        ".zip"
+    } else {
+        ".tar.gz"
+    };
+    let backup_path = current_exe.with_extension(format!("{}.bak", extension));
+
+    // Download to temp file
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("hal-cli")
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    let response = client
+        .get(download_url)
+        .send()
+        .context("Failed to download update")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("Failed to download update: HTTP {}", response.status());
+    }
+
+    let temp_archive = std::env::temp_dir().join(format!("hal-update-{}{}", version, extension));
+    let mut file = std::fs::File::create(&temp_archive).context("Failed to create temp file")?;
+    std::io::copy(&mut response.bytes()?.as_ref(), &mut file)
+        .context("Failed to write download")?;
+    drop(file);
+
+    // Continue with extraction and installation
+    extract_and_install(&temp_archive, &current_exe, &backup_path, version)
 }

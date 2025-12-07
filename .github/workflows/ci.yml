@@ -603,7 +603,7 @@ jobs:
           prerelease: false
 
   build-docker-image:
-    name: Build and Push Docker Image
+    name: Build and Push pia-vpn Image
     runs-on: ubuntu-latest
     needs: [check-changes, prepare-release]
     if: always()
@@ -652,8 +652,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ needs.prepare-release.outputs.should_release == 'true' }}
 
-      - name: Build and push Docker image
-        if: github.event_name != 'pull_request'
+      - name: Build and push pia-vpn image
         uses: docker/build-push-action@v5
         with:
           context: ./openvpn-container
@@ -661,18 +660,6 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
-
-      - name: Build Docker image (no push for PRs)
-        if: github.event_name == 'pull_request'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./openvpn-container
-          file: ./openvpn-container/Dockerfile
-          push: false
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.number }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
