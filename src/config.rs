@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 pub struct HostConfig {
     pub ip: Option<String>,
     pub tailscale: Option<String>,
+    pub backup_path: Option<String>,
 }
 
 pub struct SmbServerConfig {
@@ -99,6 +100,7 @@ pub fn load_env_config(_homelab_dir: &Path) -> Result<EnvConfig> {
                 let config = hosts.entry(hostname_lower).or_insert_with(|| HostConfig {
                     ip: None,
                     tailscale: None,
+                    backup_path: None,
                 });
                 config.ip = Some(value);
             } else if let Some(rest) = hostname.strip_suffix("_TAILSCALE") {
@@ -106,8 +108,17 @@ pub fn load_env_config(_homelab_dir: &Path) -> Result<EnvConfig> {
                 let config = hosts.entry(hostname_lower).or_insert_with(|| HostConfig {
                     ip: None,
                     tailscale: None,
+                    backup_path: None,
                 });
                 config.tailscale = Some(value);
+            } else if let Some(rest) = hostname.strip_suffix("_BACKUP_PATH") {
+                let hostname_lower = rest.to_lowercase();
+                let config = hosts.entry(hostname_lower).or_insert_with(|| HostConfig {
+                    ip: None,
+                    tailscale: None,
+                    backup_path: None,
+                });
+                config.backup_path = Some(value);
             }
         } else if let Some(server_name) = key.strip_prefix("SMB_") {
             // Parse SMB server configuration
