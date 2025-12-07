@@ -363,12 +363,23 @@ jobs:
   manual-approval-alpha-beta:
     name: Manual Approval (Alpha/Beta)
     runs-on: ubuntu-latest
-    needs: [check-skip-ci, check-changes]
+    needs:
+      [
+        check-skip-ci,
+        check-changes,
+        build-rust-cli-linux,
+        build-rust-cli-macos,
+        build-rust-cli-windows,
+        build-docker-image,
+      ]
     if: |
       always() &&
       needs.check-skip-ci.outputs.skip != 'true' &&
       (needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta') &&
-      (needs.check-changes.outputs.src == 'true' || needs.check-changes.outputs.docker == 'true')
+      (needs.build-rust-cli-linux.result == 'success' || needs.build-rust-cli-linux.result == 'skipped') &&
+      (needs.build-rust-cli-macos.result == 'success' || needs.build-rust-cli-macos.result == 'skipped') &&
+      (needs.build-rust-cli-windows.result == 'success' || needs.build-rust-cli-windows.result == 'skipped') &&
+      (needs.build-docker-image.result == 'success' || needs.build-docker-image.result == 'skipped')
     environment:
       name: ${{ needs.check-changes.outputs.branch_type }}-approval
     steps:
@@ -378,10 +389,16 @@ jobs:
           echo "  Manual Approval Required: ${{ needs.check-changes.outputs.branch_type }} Release"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
           echo ""
-          echo "Build artifacts are ready for ${{ needs.check-changes.outputs.branch_type }} branch."
+          echo "All builds completed successfully for ${{ needs.check-changes.outputs.branch_type }} branch."
           echo "Please review the build artifacts and approve to continue with the pre-release."
           echo ""
           echo "This will create a pre-release version (e.g., 0.0.6-${{ needs.check-changes.outputs.branch_type }}.1)"
+          echo ""
+          echo "Build results:"
+          echo "  - Rust CLI (Linux): ${{ needs.build-rust-cli-linux.result }}"
+          echo "  - Rust CLI (macOS): ${{ needs.build-rust-cli-macos.result }}"
+          echo "  - Rust CLI (Windows): ${{ needs.build-rust-cli-windows.result }}"
+          echo "  - Docker image: ${{ needs.build-docker-image.result }}"
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   manual-approval-production:
