@@ -1,8 +1,36 @@
 # HAL - Homelab Automation Layer
 
-[![Build Status](https://github.com/<your-username>/homelab/workflows/Build%20and%20Push/badge.svg)](https://github.com/<your-username>/homelab/actions/workflows/build.yml)
-[![Release](https://github.com/<your-username>/homelab/workflows/Release/badge.svg)](https://github.com/<your-username>/homelab/actions/workflows/release.yml)
-[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2F%3Cyour-username%3E%2Fvpn-blue)](https://github.com/users/<your-username>/packages/container/package/vpn)
+## Status Badges
+
+### CI/CD Workflows
+[![CI/CD](https://github.com/scottdkey/homelab/actions/workflows/ci.yml/badge.svg)](https://github.com/scottdkey/homelab/actions/workflows/ci.yml)
+
+### Docker Image
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fscottdkey%2Fvpn-blue)](https://github.com/users/scottdkey/packages/container/package/vpn)
+[![Docker Build Status](https://img.shields.io/github/actions/workflow/status/scottdkey/homelab/ci.yml?label=docker%20build&logo=docker)](https://github.com/scottdkey/homelab/actions/workflows/ci.yml)
+[![Docker Image Version](https://img.shields.io/github/v/release/scottdkey/homelab?label=docker&logo=docker&sort=semver)](https://github.com/scottdkey/homelab/pkgs/container/vpn)
+
+### Platform Builds
+
+#### Linux
+[![Linux x86_64 Build](https://img.shields.io/github/actions/workflow/status/scottdkey/homelab/ci.yml?label=Linux%20x86_64&logo=linux)](https://github.com/scottdkey/homelab/actions/workflows/ci.yml)
+[![Linux ARM64 Build](https://img.shields.io/github/actions/workflow/status/scottdkey/homelab/ci.yml?label=Linux%20ARM64&logo=linux)](https://github.com/scottdkey/homelab/actions/workflows/ci.yml)
+[![Linux x86_64 Release](https://img.shields.io/github/v/release/scottdkey/homelab?label=Linux%20x86_64&logo=linux&sort=semver)](https://github.com/scottdkey/homelab/releases)
+[![Linux ARM64 Release](https://img.shields.io/github/v/release/scottdkey/homelab?label=Linux%20ARM64&logo=linux&sort=semver)](https://github.com/scottdkey/homelab/releases)
+
+#### macOS
+[![macOS x86_64 Build](https://img.shields.io/github/actions/workflow/status/scottdkey/homelab/ci.yml?label=macOS%20x86_64&logo=apple)](https://github.com/scottdkey/homelab/actions/workflows/ci.yml)
+[![macOS ARM64 Build](https://img.shields.io/github/actions/workflow/status/scottdkey/homelab/ci.yml?label=macOS%20ARM64&logo=apple)](https://github.com/scottdkey/homelab/actions/workflows/ci.yml)
+[![macOS x86_64 Release](https://img.shields.io/github/v/release/scottdkey/homelab?label=macOS%20x86_64&logo=apple&sort=semver)](https://github.com/scottdkey/homelab/releases)
+[![macOS ARM64 Release](https://img.shields.io/github/v/release/scottdkey/homelab?label=macOS%20ARM64&logo=apple&sort=semver)](https://github.com/scottdkey/homelab/releases)
+
+#### Windows
+[![Windows Build](https://img.shields.io/github/actions/workflow/status/scottdkey/homelab/ci.yml?label=Windows&logo=windows)](https://github.com/scottdkey/homelab/actions/workflows/ci.yml)
+[![Windows Release](https://img.shields.io/github/v/release/scottdkey/homelab?label=Windows&logo=windows&sort=semver)](https://github.com/scottdkey/homelab/releases)
+
+### Latest Release
+[![Latest Release](https://img.shields.io/github/v/release/scottdkey/homelab?label=latest%20release&logo=github&sort=semver)](https://github.com/scottdkey/homelab/releases/latest)
+[![Release Date](https://img.shields.io/github/release-date/scottdkey/homelab?label=released&logo=github)](https://github.com/scottdkey/homelab/releases)
 
 A Rust-based CLI tool for managing your homelab infrastructure, with scripts for SSH setup and automation.
 
@@ -16,19 +44,19 @@ Download and run the install script from GitHub:
 
 **On Unix/macOS/Linux:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<your-username>/homelab/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/install.sh | bash
 ```
 
 Or download and run manually:
 ```bash
-curl -O https://raw.githubusercontent.com/<your-username>/homelab/main/scripts/install.sh
+curl -O https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/install.sh
 chmod +x install.sh
 ./install.sh
 ```
 
 **On Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/<your-username>/homelab/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/scottdkey/homelab/main/scripts/install.ps1 | iex
 ```
 
 The install scripts will:
