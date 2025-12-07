@@ -140,6 +140,47 @@ jobs:
           git checkout -b $TO origin/$TO || git checkout $TO
           git pull origin $TO
 
+      - name: Increment version (for beta -> main promotion)
+        if: github.event.inputs.from_branch == 'beta' && github.event.inputs.to_branch == 'main'
+        id: increment_version
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Incrementing version for promotion to main"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+
+          # Get current version from Cargo.toml
+          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "Current version: $CURRENT_VERSION"
+
+          # Get previous version from main branch to compare
+          git fetch origin main:main || true
+          PREVIOUS_VERSION=$(git show main:Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "$CURRENT_VERSION")
+          echo "Previous version on main: $PREVIOUS_VERSION"
+
+          # Parse versions
+          IFS='.' read -r CURR_MAJOR CURR_MINOR CURR_PATCH <<< "$CURRENT_VERSION"
+          IFS='.' read -r PREV_MAJOR PREV_MINOR PREV_PATCH <<< "$PREVIOUS_VERSION"
+
+          # Only increment patch if major/minor haven't changed
+          if [ "$CURR_MAJOR" == "$PREV_MAJOR" ] && [ "$CURR_MINOR" == "$PREV_MINOR" ]; then
+            NEW_PATCH=$((CURR_PATCH + 1))
+            NEW_VERSION="$CURR_MAJOR.$CURR_MINOR.$NEW_PATCH"
+            echo "Incrementing patch version: $CURRENT_VERSION -> $NEW_VERSION"
+            
+            # Update Cargo.toml
+            sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+            git add Cargo.toml
+            
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "should_increment=true" >> $GITHUB_OUTPUT
+            echo "✓ Version will be bumped to $NEW_VERSION"
+          else
+            echo "Major or minor version changed - not auto-incrementing patch"
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "should_increment=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Merge source branch
         id: merge
         run: |
@@ -163,14 +204,24 @@ jobs:
             exit 0
           fi
 
-          # Attempt merge (no-ff to preserve history)
-          if git merge --no-ff --no-edit origin/$FROM -m "chore: promote code from $FROM to $TO
+          # Build commit message
+          COMMIT_MSG="chore: promote code from $FROM to $TO
 
           Promoted via GitHub Actions workflow
           Source: $FROM
           Target: $TO
           Triggered by: ${{ github.actor }}
-          Workflow run: ${{ github.run_id }}"; then
+          Workflow run: ${{ github.run_id }}"
+
+          # Add version increment to commit message if version was incremented
+          if [ "${{ steps.increment_version.outputs.should_increment }}" == "true" ]; then
+            COMMIT_MSG="$COMMIT_MSG
+
+          Version incremented: ${{ steps.increment_version.outputs.version }} [skip ci]"
+          fi
+
+          # Attempt merge (no-ff to preserve history)
+          if git merge --no-ff --no-edit origin/$FROM -m "$COMMIT_MSG"; then
             echo "merged=true" >> $GITHUB_OUTPUT
             echo "✓ Successfully merged $FROM into $TO"
           else
@@ -179,6 +230,14 @@ jobs:
             echo "Please resolve conflicts manually and retry"
             git merge --abort 2>/dev/null || true
             exit 1
+          fi
+
+          # If version was incremented, commit it as part of the merge
+          if [ "${{ steps.increment_version.outputs.should_increment }}" == "true" ] && [ -n "$(git status --porcelain Cargo.toml)" ]; then
+            echo "Committing version increment..."
+            git add Cargo.toml
+            git commit --amend --no-edit
+            echo "✓ Version increment included in promotion commit"
           fi
 
       - name: Push to target branch
