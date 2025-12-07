@@ -1,5 +1,7 @@
 name: Release
 
+# Note: Release workflows always build everything (both CLI and Docker)
+# This ensures versioned releases are complete and consistent
 on:
   release:
     types: [created]
