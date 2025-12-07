@@ -51,8 +51,12 @@ pub fn check_for_updates(current_version: &str) -> Result<Option<String>> {
 
     let release: Release = response.json().context("Failed to parse release JSON")?;
 
+    // Normalize versions by removing 'v' prefix for comparison
+    let latest_version = release.tag_name.trim_start_matches('v');
+    let current_version_normalized = current_version.trim_start_matches('v');
+
     // Compare versions (simple string comparison, assumes semver)
-    if release.tag_name != current_version && release.tag_name.as_str() > current_version {
+    if latest_version != current_version_normalized && latest_version > current_version_normalized {
         return Ok(Some(release.tag_name));
     }
 
@@ -81,29 +85,45 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
     println!("Downloading update...");
 
     // Detect platform
-    let (platform, extension) = if cfg!(target_os = "linux") {
-        ("linux", "")
+    let platform = if cfg!(target_os = "linux") {
+        "linux"
     } else if cfg!(target_os = "macos") {
-        ("macos", "")
+        "darwin"
     } else if cfg!(target_os = "windows") {
-        ("windows", ".exe")
+        "windows"
     } else {
         anyhow::bail!("Unsupported platform for auto-update");
     };
 
+    // Map architecture to release format (x86_64 -> amd64, aarch64 -> arm64)
     let arch = if cfg!(target_arch = "x86_64") {
-        "x86_64"
+        "amd64"
     } else if cfg!(target_arch = "aarch64") {
-        "aarch64"
+        "arm64"
     } else {
         anyhow::bail!("Unsupported architecture for auto-update");
     };
 
-    let asset_name = format!("hal-{}-{}{}", platform, arch, extension);
+    // Release artifacts are named: hal-{version}-{platform}-{arch}.tar.gz or .zip
+    let extension = if cfg!(target_os = "windows") {
+        ".zip"
+    } else {
+        ".tar.gz"
+    };
+
+    let asset_name = format!(
+        "hal-{}-{}-{}{}",
+        version.trim_start_matches('v'),
+        platform,
+        arch,
+        extension
+    );
     let download_url = format!(
         "https://github.com/{}/{}/releases/download/{}/{}",
         REPO_OWNER, REPO_NAME, version, asset_name
     );
+
+    println!("Downloading from: {}", download_url);
 
     // Get current executable path
     let current_exe = env::current_exe().context("Failed to get current executable path")?;
@@ -124,17 +144,91 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
         anyhow::bail!("Failed to download update: HTTP {}", response.status());
     }
 
-    let temp_file = std::env::temp_dir().join(format!("hal-update-{}", version));
-    let mut file = std::fs::File::create(&temp_file).context("Failed to create temp file")?;
+    let temp_archive = std::env::temp_dir().join(format!("hal-update-{}{}", version, extension));
+    let mut file = std::fs::File::create(&temp_archive).context("Failed to create temp file")?;
     std::io::copy(&mut response.bytes()?.as_ref(), &mut file)
         .context("Failed to write download")?;
     drop(file);
+
+    println!("Extracting archive...");
+
+    // Extract the archive
+    let temp_dir = std::env::temp_dir().join(format!("hal-update-extract-{}", version));
+    std::fs::create_dir_all(&temp_dir).context("Failed to create extract directory")?;
+
+    let extracted_binary = if cfg!(target_os = "windows") {
+        // Extract ZIP file
+        let archive = std::fs::File::open(&temp_archive).context("Failed to open archive")?;
+        let mut zip = zip::ZipArchive::new(archive).context("Failed to read ZIP archive")?;
+
+        // Find the hal.exe file in the archive
+        let mut found = false;
+        let mut binary_path = None;
+        for i in 0..zip.len() {
+            let mut file = zip.by_index(i).context("Failed to read ZIP entry")?;
+            let name = file.name().to_string();
+
+            if name.ends_with("hal.exe") || name == "hal.exe" {
+                let out_path = temp_dir.join("hal.exe");
+                let mut out_file =
+                    std::fs::File::create(&out_path).context("Failed to create output file")?;
+                std::io::copy(&mut file, &mut out_file).context("Failed to extract file")?;
+                binary_path = Some(out_path);
+                found = true;
+                break;
+            }
+        }
+
+        if !found {
+            anyhow::bail!("hal.exe not found in ZIP archive");
+        }
+        binary_path.unwrap()
+    } else {
+        // Extract tar.gz file
+        use flate2::read::GzDecoder;
+        use tar::Archive;
+
+        let archive_file = std::fs::File::open(&temp_archive).context("Failed to open archive")?;
+        let decoder = GzDecoder::new(archive_file);
+        let mut archive = Archive::new(decoder);
+
+        archive
+            .unpack(&temp_dir)
+            .context("Failed to extract tar.gz archive")?;
+
+        // Find the hal binary in the extracted files
+        let binary_path = temp_dir.join("hal");
+        if !binary_path.exists() {
+            // Try looking in subdirectories
+            let mut found = false;
+            for entry in std::fs::read_dir(&temp_dir).context("Failed to read extract directory")? {
+                let entry = entry.context("Failed to read directory entry")?;
+                let path = entry.path();
+                if path.is_dir() {
+                    let candidate = path.join("hal");
+                    if candidate.exists() {
+                        std::fs::copy(&candidate, &binary_path).context("Failed to copy binary")?;
+                        found = true;
+                        break;
+                    }
+                } else if path.file_name().and_then(|n| n.to_str()) == Some("hal") {
+                    std::fs::copy(&path, &binary_path).context("Failed to copy binary")?;
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                anyhow::bail!("hal binary not found in extracted archive");
+            }
+        }
+        binary_path
+    };
 
     // Make executable (Unix)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&temp_file, std::fs::Permissions::from_mode(0o755))
+        std::fs::set_permissions(&extracted_binary, std::fs::Permissions::from_mode(0o755))
             .context("Failed to set executable permissions")?;
     }
 
@@ -146,10 +240,11 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
     }
 
     // Replace current executable
-    std::fs::copy(&temp_file, &current_exe).context("Failed to install update")?;
+    std::fs::copy(&extracted_binary, &current_exe).context("Failed to install update")?;
 
-    // Clean up temp file
-    std::fs::remove_file(&temp_file).ok();
+    // Clean up temp files
+    std::fs::remove_file(&temp_archive).ok();
+    std::fs::remove_dir_all(&temp_dir).ok();
 
     println!("✓ Update installed successfully!");
     println!("  Backup saved to: {}", backup_path.display());
