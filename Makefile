@@ -45,6 +45,12 @@ build:
 	@if echo "$(MAKECMDGOALS)" | grep -qE "(linux|macos|windows|vpn|pia-vpn|all)"; then \
 		: ; \
 	else \
+		if ! command -v cargo >/dev/null 2>&1; then \
+			echo "Cargo not found. Installing Rust..."; \
+			curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable; \
+			. $$HOME/.cargo/env && cargo --version; \
+		fi; \
+		. $$HOME/.cargo/env 2>/dev/null || true; \
 		cargo build --release; \
 	fi
 
