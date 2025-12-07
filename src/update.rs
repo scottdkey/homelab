@@ -145,6 +145,7 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
         // If the specific asset doesn't exist, try to get the release assets list
         // and find a matching one
         if response.status() == 404 {
+            println!("Expected asset not found, searching release assets...");
             // Try to fetch release assets and find a matching one
             let release_url = format!(
                 "{}/repos/{}/{}/releases/tags/{}",
@@ -170,6 +171,13 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
                     .json()
                     .context("Failed to parse release info")?;
 
+                if release_info.assets.is_empty() {
+                    anyhow::bail!(
+                        "Release {} exists but has no assets. Please create a release with build artifacts.",
+                        version
+                    );
+                }
+
                 // Try to find a matching asset
                 let matching_asset = release_info
                     .assets
@@ -177,9 +185,35 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
                     .find(|asset| asset.name.contains(&platform) && asset.name.contains(&arch));
 
                 if let Some(asset) = matching_asset {
+                    println!("Found matching asset: {}", asset.name);
                     // Use the found asset URL
                     return download_and_install_from_url(&asset.browser_download_url, version);
+                } else {
+                    // Show available assets for debugging
+                    eprintln!(
+                        "No matching asset found for platform '{}' and arch '{}'",
+                        platform, arch
+                    );
+                    eprintln!("Available assets:");
+                    for asset in &release_info.assets {
+                        eprintln!("  - {}", asset.name);
+                    }
+                    anyhow::bail!(
+                        "No matching asset found for this platform ({}) and architecture ({})",
+                        platform,
+                        arch
+                    );
                 }
+            } else if release_response.status() == 404 {
+                anyhow::bail!(
+                    "Release {} not found. The release may not exist yet or may be a draft.",
+                    version
+                );
+            } else {
+                anyhow::bail!(
+                    "Failed to fetch release info: HTTP {}",
+                    release_response.status()
+                );
             }
         }
         anyhow::bail!("Failed to download update: HTTP {}", response.status());
