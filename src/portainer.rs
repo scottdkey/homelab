@@ -1,5 +1,6 @@
+use crate::config::EnvConfig;
 use crate::docker;
-use crate::exec::CommandExecutor;
+use crate::exec::{CommandExecutor, Executor};
 use anyhow::{Context, Result};
 
 /// Portainer edition type
@@ -134,5 +135,75 @@ pub fn copy_compose_file<E: CommandExecutor>(exec: &E, compose_filename: &str) -
     )?;
 
     println!("✓ Copied {} to remote system", compose_filename);
+    Ok(())
+}
+
+/// Install Portainer host on a host (public API for CLI)
+pub fn install_portainer_host(hostname: &str, edition: &str, config: &EnvConfig) -> Result<()> {
+    let edition_enum = PortainerEdition::from_str(edition)
+        .with_context(|| format!("Invalid portainer edition: {}", edition))?;
+
+    let exec = Executor::new(hostname, config)?;
+    let target_host = exec.target_host(hostname, config)?;
+    let is_local = exec.is_local();
+
+    if is_local {
+        println!(
+            "Installing Portainer {} locally on {}...",
+            edition_enum.display_name(),
+            hostname
+        );
+    } else {
+        println!(
+            "Installing Portainer {} on {} ({})...",
+            edition_enum.display_name(),
+            hostname,
+            target_host
+        );
+        // Copy compose file for remote
+        copy_compose_file(&exec, edition_enum.compose_file())?;
+    }
+    println!();
+
+    install_host(&exec, edition_enum)?;
+
+    println!();
+    println!(
+        "✓ Portainer {} installation complete for {}",
+        edition_enum.display_name(),
+        hostname
+    );
+
+    Ok(())
+}
+
+/// Install Portainer Agent on a host (public API for CLI)
+pub fn install_portainer_agent(hostname: &str, edition: &str, config: &EnvConfig) -> Result<()> {
+    // For agent, edition is currently not used (agent doesn't have CE/BE distinction in the same way)
+    // But we accept it for consistency and future use
+    let _edition_enum = PortainerEdition::from_str(edition)
+        .with_context(|| format!("Invalid portainer edition: {}", edition))?;
+
+    let exec = Executor::new(hostname, config)?;
+    let target_host = exec.target_host(hostname, config)?;
+    let is_local = exec.is_local();
+
+    if is_local {
+        println!("Installing Portainer Agent locally on {}...", hostname);
+    } else {
+        println!(
+            "Installing Portainer Agent on {} ({})...",
+            hostname, target_host
+        );
+        // Copy compose file for remote
+        copy_compose_file(&exec, "portainer-agent.docker-compose.yml")?;
+    }
+    println!();
+
+    install_agent(&exec)?;
+
+    println!();
+    println!("✓ Portainer Agent installation complete for {}", hostname);
+
     Ok(())
 }

@@ -1,4 +1,5 @@
-use crate::exec::CommandExecutor;
+use crate::config::EnvConfig;
+use crate::exec::{CommandExecutor, Executor};
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
 
@@ -657,5 +658,28 @@ pub fn stop_and_remove_container<E: CommandExecutor>(exec: &E, container_name: &
     stop_container(exec, container_name).ok();
     // Then remove
     remove_container(exec, container_name)?;
+    Ok(())
+}
+
+/// Install Docker on a host (public API for CLI)
+pub fn install_docker(hostname: &str, config: &EnvConfig) -> Result<()> {
+    let exec = Executor::new(hostname, config)?;
+    let target_host = exec.target_host(hostname, config)?;
+    let is_local = exec.is_local();
+
+    if is_local {
+        println!("Installing Docker locally on {}...", hostname);
+    } else {
+        println!("Installing Docker on {} ({})...", hostname, target_host);
+    }
+    println!();
+
+    check_and_install(&exec)?;
+    configure_permissions(&exec)?;
+    configure_ipv6(&exec)?;
+
+    println!();
+    println!("✓ Docker installation complete for {}", hostname);
+
     Ok(())
 }

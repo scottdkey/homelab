@@ -4,9 +4,13 @@ on:
   push:
     branches:
       - main
+      - alpha
+      - beta
   pull_request:
     branches:
       - main
+      - alpha
+      - beta
   workflow_dispatch:
     inputs:
       release:
@@ -85,16 +89,34 @@ jobs:
     name: Check Changed Files
     runs-on: ubuntu-latest
     needs: check-skip-ci
+    # Always run check-changes (even when release_docker is selected, it will just be skipped by dependent jobs)
     if: needs.check-skip-ci.outputs.skip != 'true'
     outputs:
       # dorny/paths-filter always outputs all filter results (true/false)
       src: ${{ steps.filter.outputs.src }}
       docker: ${{ steps.filter.outputs.docker }}
       version_changed: ${{ steps.version_check.outputs.version_changed }}
+      major_minor_changed: ${{ steps.version_check.outputs.major_minor_changed }}
+      branch_type: ${{ steps.branch_type.outputs.type }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Need full history for version comparison
+
+      - name: Determine branch type
+        id: branch_type
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          if [ "$BRANCH" == "main" ]; then
+            echo "type=production" >> $GITHUB_OUTPUT
+          elif [ "$BRANCH" == "alpha" ]; then
+            echo "type=alpha" >> $GITHUB_OUTPUT
+          elif [ "$BRANCH" == "beta" ]; then
+            echo "type=beta" >> $GITHUB_OUTPUT
+          else
+            echo "type=other" >> $GITHUB_OUTPUT
+          fi
+          echo "Branch type: ${{ steps.branch_type.outputs.type }}"
 
       - uses: dorny/paths-filter@v2
         id: filter
@@ -114,6 +136,7 @@ jobs:
         run: |
           # Default to false
           VERSION_CHANGED="false"
+          MAJOR_MINOR_CHANGED="false"
 
           # Only check if Cargo.toml was modified
           # The filter action always outputs all filter results, so this is safe
@@ -122,23 +145,40 @@ jobs:
             CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
             echo "Current version: $CURRENT_VERSION"
 
-            # Get previous version from git
+            # Get previous version from git (compare with main branch)
             git fetch origin main:main || true
             PREVIOUS_VERSION=$(git show main:Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "")
 
             if [ -n "$PREVIOUS_VERSION" ] && [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
               VERSION_CHANGED="true"
               echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+              
+              # Check if major or minor changed
+              IFS='.' read -r CURR_MAJOR CURR_MINOR CURR_PATCH <<< "$CURRENT_VERSION"
+              IFS='.' read -r PREV_MAJOR PREV_MINOR PREV_PATCH <<< "$PREVIOUS_VERSION"
+              
+              if [ "$CURR_MAJOR" != "$PREV_MAJOR" ] || [ "$CURR_MINOR" != "$PREV_MINOR" ]; then
+                MAJOR_MINOR_CHANGED="true"
+                echo "Major or minor version changed - will not auto-increment patch"
+              else
+                echo "Only patch version changed or same - can auto-increment patch"
+              fi
             fi
           fi
 
           echo "version_changed=$VERSION_CHANGED" >> $GITHUB_OUTPUT
+          echo "major_minor_changed=$MAJOR_MINOR_CHANGED" >> $GITHUB_OUTPUT
 
   prepare-release:
     name: Prepare Release
     runs-on: ubuntu-latest
     needs: [check-skip-ci, check-changes]
-    if: always() && needs.check-skip-ci.outputs.skip != 'true'
+    # Skip prepare-release if only release_docker is selected (Docker build doesn't need it)
+    # Always run for alpha/beta/main branches (they need version info)
+    if: |
+      always() && 
+      needs.check-skip-ci.outputs.skip != 'true' &&
+      github.event.inputs.release_docker != 'true'
     permissions:
       contents: write
     outputs:
@@ -169,23 +209,63 @@ jobs:
         id: check_release
         run: |
           SHOULD_RELEASE=false
+          BRANCH_TYPE="${{ needs.check-changes.outputs.branch_type }}"
+
           if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "${{ github.event.inputs.release }}" == "true" ]; then
             SHOULD_RELEASE=true
-            echo "Manual release requested"
+            echo "Manual release requested via workflow_dispatch"
+          elif [ "${{ github.event_name }}" == "push" ] && [ "$BRANCH_TYPE" == "production" ]; then
+            # For main branch: auto-build, but require manual approval for release
+            # We'll build everything, then pause for manual approval
+            SHOULD_RELEASE=false
+            echo "Main branch push - will build, then pause for manual release approval"
+          elif [ "${{ github.event_name }}" == "push" ] && ([ "$BRANCH_TYPE" == "alpha" ] || [ "$BRANCH_TYPE" == "beta" ]); then
+            # For alpha/beta: auto-build and create pre-release (after manual approval)
+            SHOULD_RELEASE=true
+            echo "Alpha/Beta branch push - will create pre-release after manual approval"
           elif [ "${{ github.event_name }}" == "push" ] && [ "${{ needs.check-changes.outputs.version_changed }}" == "true" ]; then
             SHOULD_RELEASE=true
             echo "Version changed - auto-release"
           fi
           echo "should_release=$SHOULD_RELEASE" >> $GITHUB_OUTPUT
+          echo "Branch type: $BRANCH_TYPE"
 
-      - name: Increment version (manual release)
+      - name: Increment version (smart patch increment for main branch)
+        if: |
+          github.event_name == 'push' &&
+          needs.check-changes.outputs.branch_type == 'production' &&
+          needs.check-changes.outputs.major_minor_changed != 'true'
+        id: increment_patch
+        run: |
+          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "Current version: $CURRENT_VERSION"
+
+          # Get previous version from main branch to compare
+          git fetch origin main:main || true
+          PREVIOUS_VERSION=$(git show main:Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "$CURRENT_VERSION")
+          echo "Previous version on main: $PREVIOUS_VERSION"
+
+          # Parse versions
+          IFS='.' read -r CURR_MAJOR CURR_MINOR CURR_PATCH <<< "$CURRENT_VERSION"
+          IFS='.' read -r PREV_MAJOR PREV_MINOR PREV_PATCH <<< "$PREVIOUS_VERSION"
+
+          # Only increment patch if major/minor haven't changed
+          if [ "$CURR_MAJOR" == "$PREV_MAJOR" ] && [ "$CURR_MINOR" == "$PREV_MINOR" ]; then
+            NEW_PATCH=$((CURR_PATCH + 1))
+            NEW_VERSION="$CURR_MAJOR.$CURR_MINOR.$NEW_PATCH"
+            echo "Incrementing patch version: $CURRENT_VERSION -> $NEW_VERSION"
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "should_increment=true" >> $GITHUB_OUTPUT
+          else
+            echo "Major or minor version changed - not auto-incrementing patch"
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "should_increment=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Increment version (manual release via workflow_dispatch)
         if: steps.check_release.outputs.should_release == 'true' && github.event_name == 'workflow_dispatch'
         id: increment
         run: |
-          echo "Debug: Event name: ${{ github.event_name }}"
-          echo "Debug: Should release: ${{ steps.check_release.outputs.should_release }}"
-          echo "Debug: Release input: ${{ github.event.inputs.release }}"
-
           CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
           echo "Current version: $CURRENT_VERSION"
 
@@ -217,25 +297,61 @@ jobs:
           fi
           echo "✓ Version successfully updated to $VERIFIED_VERSION"
 
-      - name: Commit version bump
-        if: steps.check_release.outputs.should_release == 'true' && github.event_name == 'workflow_dispatch' && steps.increment.outcome == 'success'
+      - name: Install GitHub CLI
+        if: |
+          needs.check-changes.outputs.branch_type == 'alpha' || 
+          needs.check-changes.outputs.branch_type == 'beta'
         run: |
-          echo "Committing version bump to ${{ steps.increment.outputs.version }}"
-          git add Cargo.toml
-          git status
-          # Use [skip ci] to prevent infinite loop - GitHub Actions will skip workflows on commits with this pattern
-          git commit -m "chore: bump version to ${{ steps.increment.outputs.version }} [skip ci]"
-          echo "Pushing to main branch..."
-          git push origin HEAD:main
-          echo "✓ Version bump committed and pushed (CI will be skipped for this commit)"
+          type -p gh > /dev/null || (curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && sudo apt update && sudo apt install gh -y)
 
-      - name: Determine release version
+      - name: Determine release version for alpha/beta
+        if: |
+          needs.check-changes.outputs.branch_type == 'alpha' || 
+          needs.check-changes.outputs.branch_type == 'beta'
+        id: prerelease_version
+        run: |
+          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          BRANCH_TYPE="${{ needs.check-changes.outputs.branch_type }}"
+
+          # Get the latest pre-release for this version and branch type
+          LATEST_PRERELEASE=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name | startswith(\"v${CURRENT_VERSION}-${BRANCH_TYPE}.\")) | .tag_name" | head -1 || echo "")
+
+          if [ -n "$LATEST_PRERELEASE" ]; then
+            # Extract the pre-release number and increment
+            PRERELEASE_NUM=$(echo "$LATEST_PRERELEASE" | sed "s/v${CURRENT_VERSION}-${BRANCH_TYPE}\.//" | sed 's/.*\.//')
+            if [ -n "$PRERELEASE_NUM" ] && [ "$PRERELEASE_NUM" -ge 0 ] 2>/dev/null; then
+              NEXT_NUM=$((PRERELEASE_NUM + 1))
+            else
+              NEXT_NUM=1
+            fi
+          else
+            NEXT_NUM=1
+          fi
+
+          PRERELEASE_VERSION="${CURRENT_VERSION}-${BRANCH_TYPE}.${NEXT_NUM}"
+          echo "version=$PRERELEASE_VERSION" >> $GITHUB_OUTPUT
+          echo "Pre-release version: $PRERELEASE_VERSION"
+
+      # Note: Version increment for main branch happens in create-release job after manual approval
+
+      - name: Set should release flag
+        id: should_release
+        run: |
+          echo "value=${{ steps.check_release.outputs.should_release }}" >> $GITHUB_OUTPUT
+
+      - name: Determine release version (for prepare-release output)
         id: version
         run: |
+          BRANCH_TYPE="${{ needs.check-changes.outputs.branch_type }}"
+
           if [ "${{ steps.check_release.outputs.should_release }}" == "true" ]; then
-            if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            if [ "$BRANCH_TYPE" == "alpha" ] || [ "$BRANCH_TYPE" == "beta" ]; then
+              # Use pre-release version for alpha/beta
+              VERSION="${{ steps.prerelease_version.outputs.version }}"
+            elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
               VERSION="${{ steps.increment.outputs.version }}"
             else
+              # For main branch push, version will be determined after approval in create-release job
               VERSION="${{ steps.current_version.outputs.version }}"
             fi
             echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -244,21 +360,70 @@ jobs:
             echo "version=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set should release flag
-        id: should_release
+  manual-approval-alpha-beta:
+    name: Manual Approval (Alpha/Beta)
+    runs-on: ubuntu-latest
+    needs: [check-skip-ci, check-changes]
+    if: |
+      always() &&
+      needs.check-skip-ci.outputs.skip != 'true' &&
+      (needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta') &&
+      (needs.check-changes.outputs.src == 'true' || needs.check-changes.outputs.docker == 'true')
+    environment:
+      name: ${{ needs.check-changes.outputs.branch_type }}-approval
+    steps:
+      - name: Request approval
         run: |
-          echo "value=${{ steps.check_release.outputs.should_release }}" >> $GITHUB_OUTPUT
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "  Manual Approval Required: ${{ needs.check-changes.outputs.branch_type }} Release"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo ""
+          echo "Build artifacts are ready for ${{ needs.check-changes.outputs.branch_type }} branch."
+          echo "Please review the build artifacts and approve to continue with the pre-release."
+          echo ""
+          echo "This will create a pre-release version (e.g., 0.0.6-${{ needs.check-changes.outputs.branch_type }}.1)"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  manual-approval-production:
+    name: Manual Approval (Production Release)
+    runs-on: ubuntu-latest
+    needs:
+      [
+        check-skip-ci,
+        check-changes,
+        build-rust-cli-linux,
+        build-rust-cli-macos,
+        build-rust-cli-windows,
+        build-docker-image,
+      ]
+    if: |
+      always() &&
+      needs.check-skip-ci.outputs.skip != 'true' &&
+      needs.check-changes.outputs.branch_type == 'production' &&
+      github.event_name == 'push' &&
+      (needs.build-rust-cli-linux.result == 'success' || needs.build-rust-cli-linux.result == 'skipped') &&
+      (needs.build-rust-cli-macos.result == 'success' || needs.build-rust-cli-macos.result == 'skipped') &&
+      (needs.build-rust-cli-windows.result == 'success' || needs.build-rust-cli-windows.result == 'skipped') &&
+      (needs.build-docker-image.result == 'success' || needs.build-docker-image.result == 'skipped')
+    environment: ${{ needs.check-changes.outputs.branch_type }}-release
+    steps:
+      - name: Request approval
+        run: |
+          echo "All builds completed successfully"
+          echo "Waiting for manual approval to increment version and create release..."
 
   build-rust-cli-linux:
     name: Build CLI (Linux)
     runs-on: ubuntu-latest
     needs: [check-changes, prepare-release]
-    # Build on PRs (to validate), manual dispatch, or when src files change
+    # Build on PRs, manual dispatch, when src files change, or on alpha/beta/main branches
+    # Skip if only release_docker is selected
     if: |
       github.event_name == 'pull_request' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.build_cli_linux == true || inputs.release == true)) ||
-      needs.check-changes.outputs.src == 'true' ||
-      needs.prepare-release.outputs.should_release == 'true'
+      (github.event_name == 'workflow_dispatch' && inputs.release_docker != 'true' && (inputs.build_cli_linux == true || inputs.release == true)) ||
+      (needs.check-changes.result == 'success' && needs.check-changes.outputs.src == 'true' && github.event.inputs.release_docker != 'true') ||
+      (needs.check-changes.result == 'success' && (needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta' || needs.check-changes.outputs.branch_type == 'production')) ||
+      (needs.prepare-release.result == 'success' && needs.prepare-release.outputs.should_release == 'true' && github.event.inputs.release_docker != 'true')
     permissions:
       contents: read
       actions: write
@@ -345,12 +510,14 @@ jobs:
     name: Build CLI (macOS)
     runs-on: macos-14
     needs: [check-changes, prepare-release]
-    # Build on PRs (to validate), manual dispatch, or when src files change
+    # Build on PRs, manual dispatch, when src files change, or on alpha/beta/main branches
+    # Skip if only release_docker is selected
     if: |
       github.event_name == 'pull_request' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.build_cli_macos == true || inputs.release == true)) ||
-      needs.check-changes.outputs.src == 'true' ||
-      needs.prepare-release.outputs.should_release == 'true'
+      (github.event_name == 'workflow_dispatch' && inputs.release_docker != 'true' && (inputs.build_cli_macos == true || inputs.release == true)) ||
+      (needs.check-changes.result == 'success' && needs.check-changes.outputs.src == 'true' && github.event.inputs.release_docker != 'true') ||
+      (needs.check-changes.result == 'success' && (needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta' || needs.check-changes.outputs.branch_type == 'production')) ||
+      (needs.prepare-release.result == 'success' && needs.prepare-release.outputs.should_release == 'true' && github.event.inputs.release_docker != 'true')
     permissions:
       contents: read
       actions: write
@@ -398,12 +565,14 @@ jobs:
     name: Build CLI (Windows)
     runs-on: windows-latest
     needs: [check-changes, prepare-release]
-    # Build on PRs (to validate), manual dispatch, or when src files change
+    # Build on PRs, manual dispatch, when src files change, or on alpha/beta/main branches
+    # Skip if only release_docker is selected
     if: |
       github.event_name == 'pull_request' ||
-      (github.event_name == 'workflow_dispatch' && (inputs.build_cli_windows == true || inputs.release == true)) ||
-      needs.check-changes.outputs.src == 'true' ||
-      needs.prepare-release.outputs.should_release == 'true'
+      (github.event_name == 'workflow_dispatch' && inputs.release_docker != 'true' && (inputs.build_cli_windows == true || inputs.release == true)) ||
+      (needs.check-changes.result == 'success' && needs.check-changes.outputs.src == 'true' && github.event.inputs.release_docker != 'true') ||
+      (needs.check-changes.result == 'success' && (needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta' || needs.check-changes.outputs.branch_type == 'production')) ||
+      (needs.prepare-release.result == 'success' && needs.prepare-release.outputs.should_release == 'true' && github.event.inputs.release_docker != 'true')
     permissions:
       contents: read
       actions: write
@@ -452,18 +621,29 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       [
+        check-changes,
         prepare-release,
         build-rust-cli-linux,
         build-rust-cli-macos,
         build-rust-cli-windows,
         build-docker-image,
+        manual-approval-production,
+        manual-approval-alpha-beta,
       ]
+    # Skip create-release if only release_docker is selected (Docker is released separately)
+    # For production: require manual approval
+    # For alpha/beta: require manual approval
+    # For workflow_dispatch: no approval needed
     if: |
+      github.event.inputs.release_docker != 'true' &&
       needs.prepare-release.outputs.should_release == 'true' &&
       (needs.build-rust-cli-linux.result == 'success' || needs.build-rust-cli-linux.result == 'skipped') &&
       (needs.build-rust-cli-macos.result == 'success' || needs.build-rust-cli-macos.result == 'skipped') &&
       (needs.build-rust-cli-windows.result == 'success' || needs.build-rust-cli-windows.result == 'skipped') &&
-      (needs.build-docker-image.result == 'success' || needs.build-docker-image.result == 'skipped')
+      (needs.build-docker-image.result == 'success' || needs.build-docker-image.result == 'skipped') &&
+      ((needs.check-changes.outputs.branch_type == 'production' && (needs.manual-approval-production.result == 'success' || github.event_name == 'workflow_dispatch')) ||
+       ((needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta') && (needs.manual-approval-alpha-beta.result == 'success' || github.event_name == 'workflow_dispatch')) ||
+       github.event_name == 'workflow_dispatch')
     permissions:
       contents: write
       actions: read
@@ -471,6 +651,54 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+
+      - name: Increment version (main branch - after approval)
+        if: |
+          needs.check-changes.outputs.branch_type == 'production' &&
+          needs.check-changes.outputs.major_minor_changed != 'true'
+        id: increment_after_approval
+        run: |
+          CURRENT_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "Current version: $CURRENT_VERSION"
+
+          # Get previous version from main branch to compare
+          git fetch origin main:main || true
+          PREVIOUS_VERSION=$(git show main:Cargo.toml 2>/dev/null | grep '^version = ' | sed 's/version = "\(.*\)"/\1/' || echo "$CURRENT_VERSION")
+          echo "Previous version on main: $PREVIOUS_VERSION"
+
+          # Parse versions
+          IFS='.' read -r CURR_MAJOR CURR_MINOR CURR_PATCH <<< "$CURRENT_VERSION"
+          IFS='.' read -r PREV_MAJOR PREV_MINOR PREV_PATCH <<< "$PREVIOUS_VERSION"
+
+          # Only increment patch if major/minor haven't changed
+          if [ "$CURR_MAJOR" == "$PREV_MAJOR" ] && [ "$CURR_MINOR" == "$PREV_MINOR" ]; then
+            NEW_PATCH=$((CURR_PATCH + 1))
+            NEW_VERSION="$CURR_MAJOR.$CURR_MINOR.$NEW_PATCH"
+            echo "Incrementing patch version: $CURRENT_VERSION -> $NEW_VERSION"
+            
+            # Update Cargo.toml
+            sed -i "s/^version = \".*\"/version = \"$NEW_VERSION\"/" Cargo.toml
+            git add Cargo.toml
+            git commit -m "chore: auto-increment patch version to $NEW_VERSION [skip ci]"
+            git push origin HEAD:main
+            
+            echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+            echo "should_increment=true" >> $GITHUB_OUTPUT
+            echo "✓ Version bumped to $NEW_VERSION"
+          else
+            echo "Major or minor version changed - not auto-incrementing patch"
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "should_increment=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -485,10 +713,34 @@ jobs:
           echo "Artifact directories:"
           ls -la artifacts/ || echo "No artifacts directory found"
 
+      - name: Determine release version
+        id: final_version
+        run: |
+          BRANCH_TYPE="${{ needs.check-changes.outputs.branch_type }}"
+
+          if [ "$BRANCH_TYPE" == "production" ] && [ "${{ steps.increment_after_approval.outputs.should_increment }}" == "true" ]; then
+            # Use incremented version for main branch
+            VERSION="${{ steps.increment_after_approval.outputs.version }}"
+          else
+            # Use version from prepare-release
+            VERSION="${{ needs.prepare-release.outputs.version }}"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Final release version: $VERSION"
+
+          # Check if prerelease
+          if echo "$VERSION" | grep -qE "-(alpha|beta)\."; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Prepare release archives
         run: |
           mkdir -p release
-          VERSION="${{ needs.prepare-release.outputs.version }}"
+          # Use final version (may be incremented for main branch)
+          VERSION="${{ steps.final_version.outputs.version }}"
 
           for artifact_dir in artifacts/hal-*/; do
             if [ -d "$artifact_dir" ]; then
@@ -584,29 +836,38 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ needs.prepare-release.outputs.version }}
-          name: Release v${{ needs.prepare-release.outputs.version }}
+          tag_name: v${{ steps.final_version.outputs.version }}
+          name: Release v${{ steps.final_version.outputs.version }}
           body: |
-            ## Release v${{ needs.prepare-release.outputs.version }}
+            ## Release v${{ steps.final_version.outputs.version }}
 
             ### Downloads
             - See assets below for platform-specific binaries
 
             ### Docker Image
             ```bash
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare-release.outputs.version }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.final_version.outputs.version }}
             ```
           files: |
             hal-*.tar.gz
             hal-*.zip
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.final_version.outputs.prerelease }}
 
   build-docker-image:
     name: Build and Push pia-vpn Image
     runs-on: ubuntu-latest
+    # When release_docker is selected, run independently
+    # Otherwise, depend on check-changes and prepare-release (but they may be skipped)
     needs: [check-changes, prepare-release]
-    if: always()
+    if: |
+      always() && (
+        github.event.inputs.release_docker == 'true' ||
+        (github.event_name == 'pull_request' && (needs.check-changes.result == 'success' || needs.check-changes.result == 'skipped')) ||
+        (needs.check-changes.result == 'success' && needs.check-changes.outputs.docker == 'true' && github.event.inputs.release_docker != 'true') ||
+        (needs.check-changes.result == 'success' && (needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta' || needs.check-changes.outputs.branch_type == 'production')) ||
+        (needs.prepare-release.result == 'success' && needs.prepare-release.outputs.should_release == 'true' && github.event.inputs.release_docker != 'true')
+      )
     permissions:
       contents: read
       packages: write
@@ -629,13 +890,21 @@ jobs:
       - name: Get version
         id: version
         run: |
-          if [ "${{ needs.prepare-release.outputs.should_release }}" == "true" ] && [ -n "${{ needs.prepare-release.outputs.version }}" ]; then
+          # When release_docker is selected, always use current version from Cargo.toml
+          if [ "${{ github.event.inputs.release_docker }}" == "true" ]; then
+            VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+            echo "Using current version from Cargo.toml for Docker release: $VERSION"
+          elif [ "${{ needs.prepare-release.result }}" == "success" ] && [ "${{ needs.prepare-release.outputs.should_release }}" == "true" ] && [ -n "${{ needs.prepare-release.outputs.version }}" ]; then
             VERSION="${{ needs.prepare-release.outputs.version }}"
+            echo "Using version from prepare-release: $VERSION"
           else
             # For non-release builds, use current version from Cargo.toml
             VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+            echo "Using current version from Cargo.toml: $VERSION"
           fi
-          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Docker image version: $VERSION"
 
       - name: Extract metadata
@@ -650,7 +919,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.version.outputs.version }},enable=${{ needs.prepare-release.outputs.should_release == 'true' }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.event.inputs.release_docker == 'true' || (needs.prepare-release.result == 'success' && needs.prepare-release.outputs.should_release == 'true' && needs.prepare-release.outputs.should_release != '') }}
 
       - name: Build and push pia-vpn image
         uses: docker/build-push-action@v5

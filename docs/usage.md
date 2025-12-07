@@ -89,3 +89,47 @@ hal vpn deploy
 ```
 
 See the [VPN documentation](vpn.md) for more details.
+
+## Update Channels
+
+HAL supports multiple update channels: stable, alpha, and beta.
+
+### Stable Channel (Default)
+
+The stable channel receives production releases. This is the default behavior:
+
+```bash
+hal update
+```
+
+### Alpha Channel
+
+The alpha channel receives pre-release builds from the `alpha` branch. These are continuously updated and may be unstable:
+
+```bash
+hal update --alpha
+```
+
+When you first use `--alpha`, you'll be prompted to confirm switching to the alpha channel. Alpha releases are versionless (continuously updated) and allow you to test the latest features before they reach beta or stable.
+
+**Note:** Alpha releases may contain bugs and breaking changes. Use at your own risk.
+
+### Beta Channel
+
+The beta channel receives pre-release builds from the `beta` branch. These are more stable than alpha but still pre-release:
+
+```bash
+hal update --beta
+```
+
+When you first use `--beta`, you'll be prompted to confirm switching to the beta channel. Beta releases are versionless (continuously updated) and provide early access to upcoming stable releases.
+
+**Note:** Beta releases may contain bugs. Use with caution in production environments.
+
+### Switching Channels
+
+- Use `hal update` (without flags) to check for stable releases
+- Use `hal update --alpha` to check for alpha releases
+- Use `hal update --beta` to check for beta releases
+
+The update command will automatically download and install the latest version from the selected channel.

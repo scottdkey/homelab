@@ -8,9 +8,17 @@ const GITHUB_API_BASE: &str = "https://api.github.com";
 const REPO_OWNER: &str = "scottdkey"; // TODO: Make this configurable
 const REPO_NAME: &str = "homelab";
 
+#[derive(Debug, Clone, Copy)]
+pub enum UpdateChannel {
+    Stable,
+    Alpha,
+    Beta,
+}
+
 #[derive(Debug, Deserialize)]
 struct Release {
     tag_name: String,
+    prerelease: bool,
     #[serde(skip)]
     _assets: Vec<Asset>,
 }
@@ -23,7 +31,7 @@ struct Asset {
     _browser_download_url: String,
 }
 
-pub fn check_for_updates(current_version: &str) -> Result<Option<String>> {
+pub fn check_for_updates(current_version: &str, channel: UpdateChannel) -> Result<Option<String>> {
     // Skip update check in development mode
     if env::var("HAL_DEV_MODE").is_ok() || cfg!(debug_assertions) {
         return Ok(None);
@@ -35,30 +43,73 @@ pub fn check_for_updates(current_version: &str) -> Result<Option<String>> {
         .build()
         .context("Failed to create HTTP client")?;
 
-    let url = format!(
-        "{}/repos/{}/{}/releases/latest",
-        GITHUB_API_BASE, REPO_OWNER, REPO_NAME
-    );
+    let url = match channel {
+        UpdateChannel::Stable => {
+            format!(
+                "{}/repos/{}/{}/releases/latest",
+                GITHUB_API_BASE, REPO_OWNER, REPO_NAME
+            )
+        }
+        UpdateChannel::Alpha => {
+            format!(
+                "{}/repos/{}/{}/releases",
+                GITHUB_API_BASE, REPO_OWNER, REPO_NAME
+            )
+        }
+        UpdateChannel::Beta => {
+            format!(
+                "{}/repos/{}/{}/releases",
+                GITHUB_API_BASE, REPO_OWNER, REPO_NAME
+            )
+        }
+    };
 
     let response = client
         .get(&url)
         .send()
-        .context("Failed to fetch latest release")?;
+        .context("Failed to fetch releases")?;
 
     if !response.status().is_success() {
         // Silently fail - network issues shouldn't block the CLI
         return Ok(None);
     }
 
-    let release: Release = response.json().context("Failed to parse release JSON")?;
+    match channel {
+        UpdateChannel::Stable => {
+            let release: Release = response.json().context("Failed to parse release JSON")?;
+            // For stable, only check non-prerelease releases
+            if release.prerelease {
+                return Ok(None);
+            }
+            let latest_version = release.tag_name.trim_start_matches('v');
+            let current_version_normalized = current_version.trim_start_matches('v');
+            if latest_version != current_version_normalized
+                && latest_version > current_version_normalized
+            {
+                return Ok(Some(release.tag_name));
+            }
+        }
+        UpdateChannel::Alpha | UpdateChannel::Beta => {
+            // For alpha/beta, get all releases and find the latest matching channel
+            let releases: Vec<Release> =
+                response.json().context("Failed to parse releases JSON")?;
+            let channel_suffix = match channel {
+                UpdateChannel::Alpha => "-alpha.",
+                UpdateChannel::Beta => "-beta.",
+                _ => unreachable!(),
+            };
 
-    // Normalize versions by removing 'v' prefix for comparison
-    let latest_version = release.tag_name.trim_start_matches('v');
-    let current_version_normalized = current_version.trim_start_matches('v');
+            // Find the latest pre-release matching the channel
+            let matching_release = releases
+                .iter()
+                .filter(|r| r.prerelease && r.tag_name.contains(channel_suffix))
+                .max_by_key(|r| &r.tag_name);
 
-    // Compare versions (simple string comparison, assumes semver)
-    if latest_version != current_version_normalized && latest_version > current_version_normalized {
-        return Ok(Some(release.tag_name));
+            if let Some(release) = matching_release {
+                // For alpha/beta, we always consider them "newer" (versionless updates)
+                return Ok(Some(release.tag_name.clone()));
+            }
+        }
     }
 
     Ok(None)

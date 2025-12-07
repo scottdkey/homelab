@@ -1,5 +1,5 @@
 use crate::config::{self, EnvConfig, HostConfig};
-use crate::exec::CommandExecutor;
+use crate::exec::{CommandExecutor, Executor};
 use anyhow::{Context, Result};
 use std::process::Command;
 
@@ -140,6 +140,27 @@ pub fn check_and_install_remote<E: CommandExecutor>(exec: &E) -> Result<()> {
 
     println!("✓ Tailscale installed");
     println!("Note: Run 'sudo tailscale up' to connect to your tailnet");
+    Ok(())
+}
+
+/// Install Tailscale on a host (public API for CLI)
+/// Works for both local and remote hosts
+pub fn install_tailscale_on_host(hostname: &str, config: &EnvConfig) -> Result<()> {
+    let exec = Executor::new(hostname, config)?;
+    let target_host = exec.target_host(hostname, config)?;
+    let is_local = exec.is_local();
+
+    if is_local {
+        // For local, use the existing install_tailscale function
+        install_tailscale()?;
+    } else {
+        println!("Installing Tailscale on {} ({})...", hostname, target_host);
+        println!();
+        check_and_install_remote(&exec)?;
+        println!();
+        println!("✓ Tailscale installation complete for {}", hostname);
+    }
+
     Ok(())
 }
 

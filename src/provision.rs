@@ -44,14 +44,20 @@ pub fn provision_host(
 
     // Execute provisioning steps using the executor
     check_sudo_access(&exec, !is_local)?;
+
+    // Install Docker
     docker::check_and_install(&exec)?;
-    tailscale::check_and_install_remote(&exec)?;
     docker::configure_permissions(&exec)?;
     docker::configure_ipv6(&exec)?;
 
+    // Install Tailscale
+    tailscale::check_and_install_remote(&exec)?;
+
+    // Install Portainer
     if portainer_host {
         install_host(&exec, edition)?;
     } else {
+        // For agent, we use CE edition (agent doesn't have separate editions currently)
         install_agent(&exec)?;
     }
 

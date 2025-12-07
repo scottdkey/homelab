@@ -15,10 +15,13 @@ mod vpn;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use std::env;
 
 fn check_for_updates() {
-    // Check for updates in background (non-blocking)
-    if let Ok(Some(new_version)) = update::check_for_updates(env!("CARGO_PKG_VERSION")) {
+    // Check for updates in background (non-blocking) - only stable channel
+    if let Ok(Some(new_version)) =
+        update::check_for_updates(env!("CARGO_PKG_VERSION"), update::UpdateChannel::Stable)
+    {
         if let Ok(true) = update::prompt_for_update(&new_version, env!("CARGO_PKG_VERSION")) {
             if let Err(e) = update::download_and_install_update(&new_version) {
                 eprintln!("Failed to install update: {}", e);
@@ -42,6 +45,16 @@ enum Commands {
     Tailscale {
         #[command(subcommand)]
         command: TailscaleCommands,
+    },
+    /// Install Docker on the system
+    Docker {
+        #[command(subcommand)]
+        command: DockerCommands,
+    },
+    /// Install Portainer on the system
+    Portainer {
+        #[command(subcommand)]
+        command: PortainerCommands,
     },
     /// Provision a remote host (install Docker, Tailscale, Portainer)
     Provision {
@@ -90,12 +103,51 @@ enum Commands {
         #[command(subcommand)]
         command: ConfigCommands,
     },
+    /// Check for and install updates
+    Update {
+        /// Use alpha channel for updates
+        #[arg(long)]
+        alpha: bool,
+        /// Use beta channel for updates
+        #[arg(long)]
+        beta: bool,
+    },
 }
 
 #[derive(Subcommand)]
 enum TailscaleCommands {
     /// Install Tailscale
-    Install,
+    Install {
+        /// Hostname to install Tailscale on (defaults to localhost)
+        #[arg(default_value = "localhost")]
+        hostname: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum DockerCommands {
+    /// Install Docker
+    Install {
+        /// Hostname to install Docker on (defaults to localhost)
+        #[arg(default_value = "localhost")]
+        hostname: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum PortainerCommands {
+    /// Install Portainer (host or agent)
+    Install {
+        /// Hostname to install Portainer on (defaults to localhost)
+        #[arg(default_value = "localhost")]
+        hostname: String,
+        /// Portainer edition to install (ce or be)
+        #[arg(long, default_value = "ce")]
+        edition: String,
+        /// Install Portainer host (with UI) instead of agent
+        #[arg(long)]
+        host: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -156,7 +208,38 @@ fn main() -> Result<()> {
 
     match cli.command {
         Commands::Tailscale { command } => match command {
-            TailscaleCommands::Install => tailscale::install_tailscale()?,
+            TailscaleCommands::Install { hostname } => {
+                if hostname == "localhost" {
+                    // For localhost, use the original function (no config needed)
+                    tailscale::install_tailscale()?;
+                } else {
+                    let homelab_dir = config::find_homelab_dir()?;
+                    let config = config::load_env_config(&homelab_dir)?;
+                    tailscale::install_tailscale_on_host(&hostname, &config)?;
+                }
+            }
+        },
+        Commands::Docker { command } => match command {
+            DockerCommands::Install { hostname } => {
+                let homelab_dir = config::find_homelab_dir()?;
+                let config = config::load_env_config(&homelab_dir)?;
+                docker::install_docker(&hostname, &config)?;
+            }
+        },
+        Commands::Portainer { command } => match command {
+            PortainerCommands::Install {
+                hostname,
+                edition,
+                host,
+            } => {
+                let homelab_dir = config::find_homelab_dir()?;
+                let config = config::load_env_config(&homelab_dir)?;
+                if host {
+                    portainer::install_portainer_host(&hostname, &edition, &config)?;
+                } else {
+                    portainer::install_portainer_agent(&hostname, &edition, &config)?;
+                }
+            }
         },
         Commands::Provision {
             hostname,
@@ -235,6 +318,27 @@ fn main() -> Result<()> {
                 vpn::verify_vpn(&hostname, &config)?;
             }
         },
+        Commands::Update { alpha, beta } => {
+            let current_version = env!("CARGO_PKG_VERSION");
+            let channel = if alpha {
+                update::UpdateChannel::Alpha
+            } else if beta {
+                update::UpdateChannel::Beta
+            } else {
+                update::UpdateChannel::Stable
+            };
+
+            if let Ok(Some(new_version)) = update::check_for_updates(current_version, channel) {
+                if update::prompt_for_update(&new_version, current_version)? {
+                    update::download_and_install_update(&new_version)?;
+                }
+            } else {
+                println!(
+                    "You're already running the latest version: {}",
+                    current_version
+                );
+            }
+        }
         Commands::Config { command } => match command {
             ConfigCommands::Init => {
                 config_manager::init_config_interactive()?;
