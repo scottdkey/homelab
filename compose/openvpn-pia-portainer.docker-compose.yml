@@ -4,8 +4,8 @@ services:
     # Handles VPN connection and provides HTTP proxy
     # For Portainer deployment - uses image from GitHub Container Registry
     # Set VPN_IMAGE environment variable or use default from your GitHub username
-    # Example: VPN_IMAGE=ghcr.io/username/vpn:latest
-    image: ${VPN_IMAGE:-ghcr.io/scottdkey/vpn:latest}
+    # Example: VPN_IMAGE=ghcr.io/username/pia-vpn:latest
+    image: ${VPN_IMAGE:-ghcr.io/scottdkey/pia-vpn:latest}
     container_name: openvpn-pia
     cap_add:
       - NET_ADMIN

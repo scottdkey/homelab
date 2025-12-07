@@ -28,7 +28,7 @@ pub fn build_and_push_vpn_image(github_user: &str, image_tag: Option<&str>) -> R
         })
         .unwrap_or_else(|| "unknown".to_string());
 
-    let base_image = format!("ghcr.io/{}/vpn", github_user);
+    let base_image = format!("ghcr.io/{}/pia-vpn", github_user);
     let latest_tag = format!("{}:latest", base_image);
     let hash_tag = format!("{}:{}", base_image, git_hash);
 
@@ -71,7 +71,7 @@ pub fn build_and_push_vpn_image(github_user: &str, image_tag: Option<&str>) -> R
     // Try to verify we can access ghcr.io
     let login_test = local::execute(
         "docker",
-        &["pull", &format!("ghcr.io/{}/vpn:latest", github_user)],
+        &["pull", &format!("ghcr.io/{}/pia-vpn:latest", github_user)],
     );
 
     if let Ok(output) = login_test {

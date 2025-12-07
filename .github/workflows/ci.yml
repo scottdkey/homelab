@@ -487,28 +487,42 @@ jobs:
               ARTIFACT_NAME=$(basename "$artifact_dir")
               TARGET=$(echo "$ARTIFACT_NAME" | sed 's/hal-//')
               
+              # Extract architecture from target (format: arch-vendor-os-abi)
+              ARCH_RAW=$(echo "$TARGET" | cut -d'-' -f1)
+              # Convert architecture names
+              case "$ARCH_RAW" in
+                x86_64)
+                  ARCH="amd64"
+                  ;;
+                aarch64)
+                  ARCH="arm64"
+                  ;;
+                riscv64gc)
+                  ARCH="riscv64"
+                  ;;
+                *)
+                  ARCH="$ARCH_RAW"
+                  ;;
+              esac
+              
               # Check for Windows executable (.exe)
               if [ -f "$artifact_dir/hal.exe" ]; then
                 BINARY_NAME="hal.exe"
                 OS="windows"
-                ARCH="amd64"
                 EXT=""
               elif [ -f "$artifact_dir/hal" ]; then
                 BINARY_NAME="hal"
                 case "$TARGET" in
                   *linux-gnu*)
                     OS="linux"
-                    ARCH=$(echo "$TARGET" | sed 's/.*-\(.*\)-.*/\1/' | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
                     EXT=""
                     ;;
                   *linux-musl*)
                     OS="linux"
-                    ARCH="amd64"
                     EXT="musl"
                     ;;
                   *apple-darwin*)
                     OS="darwin"
-                    ARCH=$(echo "$TARGET" | sed 's/.*-\(.*\)-.*/\1/' | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
                     EXT=""
                     ;;
                   *)
@@ -684,15 +698,31 @@ jobs:
               ARTIFACT_NAME=$(basename "$artifact_dir")
               TARGET=$(echo "$ARTIFACT_NAME" | sed 's/hal-//')
               
+              # Extract architecture from target (format: arch-vendor-os-abi)
+              ARCH_RAW=$(echo "$TARGET" | cut -d'-' -f1)
+              # Convert architecture names
+              case "$ARCH_RAW" in
+                x86_64)
+                  ARCH="amd64"
+                  ;;
+                aarch64)
+                  ARCH="arm64"
+                  ;;
+                riscv64gc)
+                  ARCH="riscv64"
+                  ;;
+                *)
+                  ARCH="$ARCH_RAW"
+                  ;;
+              esac
+              
               case "$TARGET" in
                 *linux-gnu*)
                   OS="linux"
-                  ARCH=$(echo "$TARGET" | sed 's/.*-\(.*\)-.*/\1/' | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
                   EXT=""
                   ;;
                 *linux-musl*)
                   OS="linux"
-                  ARCH="amd64"
                   EXT="musl"
                   ;;
                 *)
@@ -771,10 +801,24 @@ jobs:
               ARTIFACT_NAME=$(basename "$artifact_dir")
               TARGET=$(echo "$ARTIFACT_NAME" | sed 's/hal-//')
               
+              # Extract architecture from target (format: arch-vendor-os-abi)
+              ARCH_RAW=$(echo "$TARGET" | cut -d'-' -f1)
+              # Convert architecture names
+              case "$ARCH_RAW" in
+                x86_64)
+                  ARCH="amd64"
+                  ;;
+                aarch64)
+                  ARCH="arm64"
+                  ;;
+                *)
+                  ARCH="$ARCH_RAW"
+                  ;;
+              esac
+              
               case "$TARGET" in
                 *apple-darwin*)
                   OS="darwin"
-                  ARCH=$(echo "$TARGET" | sed 's/.*-\(.*\)-.*/\1/' | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
                   EXT=""
                   ;;
                 *)
