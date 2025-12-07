@@ -62,9 +62,30 @@ env:
   RUST_VERSION: stable
 
 jobs:
+  check-skip-ci:
+    name: Check if CI should be skipped
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Check commit message for skip patterns
+        id: check
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          SKIP_PATTERNS="\[skip ci\]|\[ci skip\]|\[no ci\]|\[skip actions\]|\*\*\*NO_CI\*\*\*"
+          if echo "$COMMIT_MSG" | grep -qiE "$SKIP_PATTERNS"; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "⏭️  CI skipped due to commit message pattern"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "✓ CI will run"
+          fi
+
   check-changes:
     name: Check Changed Files
     runs-on: ubuntu-latest
+    needs: check-skip-ci
+    if: needs.check-skip-ci.outputs.skip != 'true'
     outputs:
       # dorny/paths-filter always outputs all filter results (true/false)
       src: ${{ steps.filter.outputs.src }}
@@ -116,8 +137,8 @@ jobs:
   prepare-release:
     name: Prepare Release
     runs-on: ubuntu-latest
-    needs: check-changes
-    if: always()
+    needs: [check-skip-ci, check-changes]
+    if: always() && needs.check-skip-ci.outputs.skip != 'true'
     permissions:
       contents: write
     outputs:
@@ -202,10 +223,11 @@ jobs:
           echo "Committing version bump to ${{ steps.increment.outputs.version }}"
           git add Cargo.toml
           git status
+          # Use [skip ci] to prevent infinite loop - GitHub Actions will skip workflows on commits with this pattern
           git commit -m "chore: bump version to ${{ steps.increment.outputs.version }} [skip ci]"
           echo "Pushing to main branch..."
           git push origin HEAD:main
-          echo "✓ Version bump committed and pushed"
+          echo "✓ Version bump committed and pushed (CI will be skipped for this commit)"
 
       - name: Determine release version
         id: version
@@ -247,6 +269,7 @@ jobs:
           - x86_64-unknown-linux-gnu
           - x86_64-unknown-linux-musl
           - aarch64-unknown-linux-gnu
+          - riscv64gc-unknown-linux-gnu
 
     steps:
       - name: Checkout code
@@ -271,7 +294,7 @@ jobs:
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 
       - name: Install build dependencies (Linux)
-        if: startsWith(matrix.target, 'x86_64-unknown-linux') || startsWith(matrix.target, 'aarch64-unknown-linux')
+        if: startsWith(matrix.target, 'x86_64-unknown-linux') || startsWith(matrix.target, 'aarch64-unknown-linux') || startsWith(matrix.target, 'riscv64gc-unknown-linux')
         run: |
           sudo apt-get update
           if [[ "${{ matrix.target }}" == *"musl"* ]]; then
@@ -283,6 +306,13 @@ jobs:
             echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
             echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
             echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+          elif [[ "${{ matrix.target }}" == "riscv64gc-unknown-linux-gnu" ]]; then
+            sudo apt-get install -y \
+              gcc-riscv64-linux-gnu \
+              g++-riscv64-linux-gnu
+            echo "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc" >> $GITHUB_ENV
+            echo "CC_riscv64gc_unknown_linux_gnu=riscv64-linux-gnu-gcc" >> $GITHUB_ENV
+            echo "CXX_riscv64gc_unknown_linux_gnu=riscv64-linux-gnu-g++" >> $GITHUB_ENV
           fi
 
       - name: Build Rust CLI
@@ -382,6 +412,7 @@ jobs:
       matrix:
         target:
           - x86_64-pc-windows-msvc
+          - aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout code
