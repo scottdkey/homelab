@@ -501,7 +501,7 @@ jobs:
     if: |
       github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' && inputs.release_docker != 'true' && (inputs.build_cli_linux == true || inputs.release == true)) ||
-      (needs.approval-to-build.result == 'success' && github.event.inputs.release_docker != 'true')
+      (needs.approval-to-build.result == 'success' && github.event.inputs.release_docker != 'true' && (needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta' || needs.check-changes.outputs.branch_type == 'production'))
     permissions:
       contents: read
       actions: write
