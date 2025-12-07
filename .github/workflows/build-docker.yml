@@ -108,7 +108,7 @@ jobs:
       github.event.inputs.release == 'true' &&
       (needs.build.result == 'success' || needs.build.result == 'skipped')
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
     steps:
