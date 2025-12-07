@@ -1,119 +1,15 @@
 use crate::config::EnvConfig;
-use crate::exec::{SshConnection, local};
+use crate::exec::SshConnection;
+use crate::provision::{PortainerEdition, utils};
 use anyhow::{Context, Result};
+use serde_json::json;
 
-/// Detect if we're running locally on the target host or remotely
-fn is_local_execution(hostname: &str, config: &EnvConfig) -> Result<bool> {
-    let host_config = config
-        .hosts
-        .get(hostname)
-        .with_context(|| format!("Host '{}' not found in config", hostname))?;
-
-    // Get target IP
-    let target_ip = if let Some(ip) = &host_config.ip {
-        ip.clone()
-    } else {
-        // If no IP configured, assume remote
-        return Ok(false);
-    };
-
-    // Get local IP addresses
-    let local_ips = get_local_ips()?;
-
-    // Check if target IP matches any local IP
-    Ok(local_ips.contains(&target_ip))
-}
-
-/// Get all local IP addresses
-fn get_local_ips() -> Result<Vec<String>> {
-    let mut ips = Vec::new();
-
-    // Try to get IPs using platform-specific commands
-    #[cfg(unix)]
-    {
-        // Use `hostname -I` on Linux or `ifconfig` on macOS
-        if let Ok(output) = local::execute("hostname", &["-I"]) {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for ip in stdout.split_whitespace() {
-                ips.push(ip.to_string());
-            }
-        }
-
-        // Also try `ip addr` on Linux
-        if let Ok(output) = local::execute("ip", &["addr", "show"]) {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if line.contains("inet ") && !line.contains("127.0.0.1") && !line.contains("::1") {
-                    if let Some(ip_part) = line.split_whitespace().nth(1) {
-                        if let Some(ip) = ip_part.split('/').next() {
-                            ips.push(ip.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[cfg(windows)]
-    {
-        // Use `ipconfig` on Windows
-        if let Ok(output) = local::execute("ipconfig", &[]) {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            for line in stdout.lines() {
-                if line.contains("IPv4 Address") || line.contains("IPv4 地址") {
-                    if let Some(ip_part) = line.split(':').nth(1) {
-                        let ip = ip_part.trim();
-                        if !ip.is_empty() {
-                            ips.push(ip.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(ips)
-}
-
-pub fn provision_host(hostname: &str, portainer_host: bool, config: &EnvConfig) -> Result<()> {
-    // Check if we're running locally or remotely
-    let is_local = is_local_execution(hostname, config)?;
-
-    if is_local {
-        println!("Detected local execution on {}", hostname);
-        println!();
-        provision_local(hostname, portainer_host, config)
-    } else {
-        println!("Detected remote execution - provisioning via SSH");
-        println!();
-        provision_remote(hostname, portainer_host, config)
-    }
-}
-
-fn provision_local(hostname: &str, portainer_host: bool, _config: &EnvConfig) -> Result<()> {
-    // Execute provisioning steps directly on local machine
-    println!("Provisioning {} (local)...", hostname);
-    println!();
-
-    check_sudo_access_local()?;
-    check_and_install_docker_local()?;
-    check_and_install_tailscale_local()?;
-    configure_docker_permissions_local()?;
-    configure_docker_ipv6_local()?;
-
-    if portainer_host {
-        install_portainer_local()?;
-    } else {
-        install_portainer_agent_local()?;
-    }
-
-    println!();
-    println!("✓ Provisioning complete for {}", hostname);
-
-    Ok(())
-}
-
-fn provision_remote(hostname: &str, portainer_host: bool, config: &EnvConfig) -> Result<()> {
+pub fn provision_remote(
+    hostname: &str,
+    portainer_host: bool,
+    portainer_edition: PortainerEdition,
+    config: &EnvConfig,
+) -> Result<()> {
     let host_config = config.hosts.get(hostname).with_context(|| {
         format!(
             "Host '{}' not found in .env\n\nAdd configuration to .env:\n  HOST_{}_IP=\"<ip-address>\"\n  HOST_{}_TAILSCALE=\"<tailscale-hostname>\"",
@@ -142,9 +38,9 @@ fn provision_remote(hostname: &str, portainer_host: bool, config: &EnvConfig) ->
 
     // Copy the appropriate docker-compose file
     if portainer_host {
-        copy_portainer_compose(&target_host, "portainer.docker-compose.yml")?;
+        utils::copy_portainer_compose(&target_host, portainer_edition.compose_file())?;
     } else {
-        copy_portainer_compose(&target_host, "portainer-agent.docker-compose.yml")?;
+        utils::copy_portainer_compose(&target_host, "portainer-agent.docker-compose.yml")?;
     }
 
     // Execute provisioning steps
@@ -155,7 +51,7 @@ fn provision_remote(hostname: &str, portainer_host: bool, config: &EnvConfig) ->
     configure_docker_ipv6(&ssh_conn)?;
 
     if portainer_host {
-        install_portainer(&ssh_conn)?;
+        install_portainer(&ssh_conn, portainer_edition)?;
     } else {
         install_portainer_agent(&ssh_conn)?;
     }
@@ -166,171 +62,6 @@ fn provision_remote(hostname: &str, portainer_host: bool, config: &EnvConfig) ->
     Ok(())
 }
 
-// Local execution functions (simplified versions that run directly)
-fn check_sudo_access_local() -> Result<()> {
-    println!("=== Checking sudo access ===");
-    if cfg!(target_os = "macos") {
-        println!("✓ macOS detected (Docker Desktop handles permissions)");
-        return Ok(());
-    }
-
-    let output = local::execute("sudo", &["-n", "true"])?;
-    if !output.status.success() {
-        println!("Error: Passwordless sudo is required for automated provisioning.");
-        println!();
-        println!("To configure passwordless sudo, run:");
-        println!("  sudo visudo");
-        println!();
-        println!("Then add this line (replace USERNAME with your username):");
-        println!("  USERNAME ALL=(ALL) NOPASSWD: ALL");
-        println!();
-        anyhow::bail!("Passwordless sudo not configured");
-    }
-
-    println!("✓ Passwordless sudo configured");
-    Ok(())
-}
-
-fn check_and_install_docker_local() -> Result<()> {
-    println!("=== Checking Docker installation ===");
-    if local::check_command_exists("docker") {
-        println!("✓ Docker already installed");
-        return Ok(());
-    }
-
-    println!("Docker not found. Please install Docker manually.");
-    println!("  Linux: https://docs.docker.com/engine/install/");
-    println!("  macOS: https://docs.docker.com/desktop/install/mac-install/");
-    println!("  Windows: https://docs.docker.com/desktop/install/windows-install/");
-    anyhow::bail!("Docker installation required");
-}
-
-fn check_and_install_tailscale_local() -> Result<()> {
-    println!();
-    println!("=== Checking Tailscale installation ===");
-    if local::check_command_exists("tailscale") {
-        println!("✓ Tailscale already installed");
-        return Ok(());
-    }
-
-    println!("Tailscale not found. Please install Tailscale manually.");
-    println!("  Visit: https://tailscale.com/download");
-    anyhow::bail!("Tailscale installation required");
-}
-
-fn configure_docker_permissions_local() -> Result<()> {
-    println!();
-    println!("=== Configuring Docker permissions ===");
-    if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
-        return Ok(());
-    }
-
-    // Check if user is in docker group
-    let groups_output = local::execute("groups", &[])?;
-    let groups = String::from_utf8_lossy(&groups_output.stdout);
-    if !groups.contains("docker") {
-        println!("Adding user to docker group...");
-        local::execute_status("sudo", &["usermod", "-aG", "docker", &whoami::username()])?;
-        println!("✓ User added to docker group");
-        println!("Note: You may need to log out and back in for changes to take effect");
-    } else {
-        println!("✓ User already in docker group");
-    }
-
-    Ok(())
-}
-
-fn configure_docker_ipv6_local() -> Result<()> {
-    println!();
-    println!("=== Configuring Docker IPv6 support ===");
-    if cfg!(target_os = "macos") || cfg!(target_os = "windows") {
-        println!(
-            "Skipping IPv6 configuration (macOS/Windows - Docker Desktop handles IPv6 differently)"
-        );
-        return Ok(());
-    }
-
-    // Similar to remote version but using local execution
-    let ipv6_subnet = "fd00:172:20::/64";
-    let daemon_file = "/etc/docker/daemon.json";
-
-    let ipv6_enabled = if std::path::Path::new(daemon_file).exists() {
-        let content = local::read_file(daemon_file)?;
-        content.contains("\"ipv6\"") && content.contains("true")
-    } else {
-        false
-    };
-
-    if ipv6_enabled {
-        println!("✓ IPv6 already enabled in Docker daemon");
-        return Ok(());
-    }
-
-    println!("Configuring IPv6 in Docker daemon...");
-
-    // Create directory if needed
-    local::execute_status("sudo", &["mkdir", "-p", "/etc/docker"])?;
-
-    // Update or create daemon.json
-    if std::path::Path::new(daemon_file).exists() {
-        // Update existing - use Python or jq
-        if local::check_command_exists("python3") {
-            let python_script = format!(
-                r#"import json; f=open('/etc/docker/daemon.json','r'); c=json.load(f); f.close(); c['ipv6']=True; c['fixed-cidr-v6']='{}'; f=open('/etc/docker/daemon.json','w'); json.dump(c,f,indent=2); f.close()"#,
-                ipv6_subnet
-            );
-            local::execute_status("sudo", &["python3", "-c", &python_script])?;
-        } else if local::check_command_exists("jq") {
-            use std::process::Command;
-            let jq_cmd = format!(
-                "sudo jq '. + {{\"ipv6\": true, \"fixed-cidr-v6\": \"{}\"}}' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp > /dev/null && sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json",
-                ipv6_subnet
-            );
-            Command::new("sh").arg("-c").arg(&jq_cmd).status()?;
-        } else {
-            anyhow::bail!("python3 or jq required to update daemon.json");
-        }
-    } else {
-        // Create new
-        let config = format!(r#"{{"ipv6": true, "fixed-cidr-v6": "{}"}}"#, ipv6_subnet);
-        use std::process::Command;
-        Command::new("sh")
-            .arg("-c")
-            .arg(&format!(
-                "echo '{}' | sudo tee /etc/docker/daemon.json > /dev/null",
-                config
-            ))
-            .status()?;
-    }
-
-    println!("✓ IPv6 configured in Docker daemon");
-    println!("Restarting Docker daemon to apply changes...");
-    local::execute_status("sudo", &["systemctl", "restart", "docker"])?;
-    std::thread::sleep(std::time::Duration::from_secs(2));
-
-    println!("✓ IPv6 verified in Docker");
-    Ok(())
-}
-
-fn install_portainer_local() -> Result<()> {
-    println!();
-    println!("=== Installing Portainer CE ===");
-    // Similar to remote but using local execution
-    // Implementation would mirror install_portainer but using local::execute
-    println!("✓ Portainer CE installed and running");
-    println!("Access Portainer at https://localhost:9443");
-    Ok(())
-}
-
-fn install_portainer_agent_local() -> Result<()> {
-    println!();
-    println!("=== Installing Portainer Agent ===");
-    // Similar to remote but using local execution
-    println!("✓ Portainer Agent installed and running");
-    Ok(())
-}
-
-// Remote execution functions (existing code)
 fn check_sudo_access(ssh: &SshConnection) -> Result<()> {
     println!("=== Checking sudo access ===");
 
@@ -400,9 +131,11 @@ fn check_and_install_docker(ssh: &SshConnection) -> Result<()> {
             )?;
 
             // Download and install GPG key
-            let gpg_cmd = "curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg";
-            ssh.execute_shell_interactive(gpg_cmd)?;
-            ssh.execute_interactive("sudo", &["chmod", "a+r", "/etc/apt/keyrings/docker.gpg"])?;
+            utils::download_and_install_gpg_key(
+                ssh,
+                "https://download.docker.com/linux/debian/gpg",
+                "/etc/apt/keyrings/docker.gpg",
+            )?;
 
             // Get codename
             let codename = if let Ok(output) =
@@ -429,10 +162,15 @@ fn check_and_install_docker(ssh: &SshConnection) -> Result<()> {
                 "deb [arch={} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian {} stable",
                 arch, codename
             );
-            ssh.execute_shell_interactive(&format!(
-                "echo '{}' | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null",
-                repo_line
-            ))?;
+            ssh.write_file("/tmp/docker.list", repo_line.as_bytes())?;
+            ssh.execute_interactive(
+                "sudo",
+                &[
+                    "mv",
+                    "/tmp/docker.list",
+                    "/etc/apt/sources.list.d/docker.list",
+                ],
+            )?;
         } else {
             println!("Detected Ubuntu, using Ubuntu Docker repository");
             ssh.execute_interactive("sudo", &["rm", "-f", "/etc/apt/sources.list.d/docker.list"])?;
@@ -455,9 +193,11 @@ fn check_and_install_docker(ssh: &SshConnection) -> Result<()> {
             )?;
 
             // Download and install GPG key
-            let gpg_cmd = "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg";
-            ssh.execute_shell_interactive(gpg_cmd)?;
-            ssh.execute_interactive("sudo", &["chmod", "a+r", "/etc/apt/keyrings/docker.gpg"])?;
+            utils::download_and_install_gpg_key(
+                ssh,
+                "https://download.docker.com/linux/ubuntu/gpg",
+                "/etc/apt/keyrings/docker.gpg",
+            )?;
 
             // Get codename
             let codename_output = ssh.execute_simple("lsb_release", &["-cs"])?;
@@ -475,10 +215,15 @@ fn check_and_install_docker(ssh: &SshConnection) -> Result<()> {
                 "deb [arch={} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {} stable",
                 arch, codename
             );
-            ssh.execute_shell_interactive(&format!(
-                "echo '{}' | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null",
-                repo_line
-            ))?;
+            ssh.write_file("/tmp/docker.list", repo_line.as_bytes())?;
+            ssh.execute_interactive(
+                "sudo",
+                &[
+                    "mv",
+                    "/tmp/docker.list",
+                    "/etc/apt/sources.list.d/docker.list",
+                ],
+            )?;
         }
 
         ssh.execute_interactive("sudo", &["apt-get", "update"])?;
@@ -575,7 +320,12 @@ fn check_and_install_tailscale(ssh: &SshConnection) -> Result<()> {
         || ssh.check_command_exists("yum")?
         || ssh.check_command_exists("dnf")?
     {
-        ssh.execute_shell_interactive("curl -fsSL https://tailscale.com/install.sh | sh")?;
+        // Download Tailscale install script and execute it
+        utils::download_and_execute_script(
+            ssh,
+            "https://tailscale.com/install.sh",
+            "/tmp/tailscale-install.sh",
+        )?;
     } else if ssh.check_command_exists("brew")? {
         ssh.execute_interactive("brew", &["install", "tailscale"])?;
     } else {
@@ -647,11 +397,16 @@ fn configure_docker_ipv6(ssh: &SshConnection) -> Result<()> {
     if !exists {
         // Create new daemon.json
         println!("Creating new Docker daemon configuration...");
-        let config = format!(r#"{{"ipv6": true, "fixed-cidr-v6": "{}"}}"#, ipv6_subnet);
-        ssh.execute_shell_interactive(&format!(
-            "echo '{}' | sudo tee /etc/docker/daemon.json > /dev/null",
-            config
-        ))?;
+        let config = json!({
+            "ipv6": true,
+            "fixed-cidr-v6": ipv6_subnet
+        });
+        let config_str = serde_json::to_string_pretty(&config)?;
+        ssh.write_file("/tmp/daemon.json", config_str.as_bytes())?;
+        ssh.execute_interactive(
+            "sudo",
+            &["mv", "/tmp/daemon.json", "/etc/docker/daemon.json"],
+        )?;
     } else {
         // Update existing daemon.json
         println!("Updating existing Docker daemon configuration...");
@@ -664,11 +419,8 @@ fn configure_docker_ipv6(ssh: &SshConnection) -> Result<()> {
             );
             ssh.execute_interactive("sudo", &["python3", "-c", &python_script])?;
         } else if ssh.check_command_exists("jq")? {
-            let jq_cmd = format!(
-                "sudo jq '. + {{\"ipv6\": true, \"fixed-cidr-v6\": \"{}\"}}' /etc/docker/daemon.json | sudo tee /etc/docker/daemon.json.tmp > /dev/null && sudo mv /etc/docker/daemon.json.tmp /etc/docker/daemon.json",
-                ipv6_subnet
-            );
-            ssh.execute_shell_interactive(&jq_cmd)?;
+            // Use Rust-native JSON manipulation instead of jq
+            utils::update_daemon_json_rust(ssh, ipv6_subnet)?;
         } else {
             // Fallback: backup and create new
             println!(
@@ -682,11 +434,16 @@ fn configure_docker_ipv6(ssh: &SshConnection) -> Result<()> {
                     "/etc/docker/daemon.json.backup",
                 ],
             )?;
-            let config = format!(r#"{{"ipv6": true, "fixed-cidr-v6": "{}"}}"#, ipv6_subnet);
-            ssh.execute_shell_interactive(&format!(
-                "echo '{}' | sudo tee /etc/docker/daemon.json > /dev/null",
-                config
-            ))?;
+            let config = json!({
+                "ipv6": true,
+                "fixed-cidr-v6": ipv6_subnet
+            });
+            let config_str = serde_json::to_string_pretty(&config)?;
+            ssh.write_file("/tmp/daemon.json", config_str.as_bytes())?;
+            ssh.execute_interactive(
+                "sudo",
+                &["mv", "/tmp/daemon.json", "/etc/docker/daemon.json"],
+            )?;
             println!("Original config backed up to /etc/docker/daemon.json.backup");
         }
     }
@@ -719,9 +476,9 @@ fn configure_docker_ipv6(ssh: &SshConnection) -> Result<()> {
     Ok(())
 }
 
-fn install_portainer(ssh: &SshConnection) -> Result<()> {
+fn install_portainer(ssh: &SshConnection, edition: PortainerEdition) -> Result<()> {
     println!();
-    println!("=== Installing Portainer CE ===");
+    println!("=== Installing Portainer {} ===", edition.display_name());
 
     // Remove existing containers
     println!("Removing any existing Portainer instances...");
@@ -758,7 +515,10 @@ fn install_portainer(ssh: &SshConnection) -> Result<()> {
         compose_cmd, compose_cmd
     ))?;
 
-    println!("✓ Portainer CE installed and running");
+    println!(
+        "✓ Portainer {} installed and running",
+        edition.display_name()
+    );
     println!("Access Portainer at https://localhost:9443");
     Ok(())
 }
@@ -804,39 +564,5 @@ fn install_portainer_agent(ssh: &SshConnection) -> Result<()> {
 
     println!("✓ Portainer Agent installed and running");
     println!("Add this agent to your Portainer instance using the agent endpoint");
-    Ok(())
-}
-
-fn copy_portainer_compose(host: &str, compose_filename: &str) -> Result<()> {
-    // Find the homelab directory to locate the compose file
-    let homelab_dir = crate::config::find_homelab_dir()?;
-    let compose_file = homelab_dir.join("compose").join(compose_filename);
-
-    if !compose_file.exists() {
-        anyhow::bail!(
-            "Portainer docker-compose file not found at {}",
-            compose_file.display()
-        );
-    }
-
-    // Read the compose file
-    let compose_content = std::fs::read_to_string(&compose_file)
-        .with_context(|| format!("Failed to read compose file: {}", compose_file.display()))?;
-
-    // Determine username for SSH
-    let default_user = crate::config::get_default_username();
-    let host_with_user = format!("{}@{}", default_user, host);
-    let ssh_conn = SshConnection::new(&host_with_user)?;
-
-    // Create directory first
-    ssh_conn.mkdir_p("$HOME/portainer")?;
-
-    // Write the file
-    ssh_conn.write_file(
-        "$HOME/portainer/docker-compose.yml",
-        compose_content.as_bytes(),
-    )?;
-
-    println!("✓ Copied {} to remote system", compose_filename);
     Ok(())
 }

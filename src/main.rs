@@ -42,9 +42,12 @@ enum Commands {
     Provision {
         /// Hostname to provision
         hostname: String,
-        /// Install Portainer CE instead of Portainer Agent
+        /// Install Portainer host instead of Portainer Agent
         #[arg(long)]
         portainer_host: bool,
+        /// Portainer edition to install (ce or be). Only used with --portainer-host
+        #[arg(long, default_value = "ce")]
+        portainer_edition: String,
     },
     /// Setup and mount SMB shares on a remote host
     Smb {
@@ -153,10 +156,11 @@ fn main() -> Result<()> {
         Commands::Provision {
             hostname,
             portainer_host,
+            portainer_edition,
         } => {
             let homelab_dir = config::find_homelab_dir()?;
             let config = config::load_env_config(&homelab_dir)?;
-            provision::provision_host(&hostname, portainer_host, &config)?;
+            provision::provision_host(&hostname, portainer_host, &portainer_edition, &config)?;
         }
         Commands::Smb {
             hostname,
