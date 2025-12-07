@@ -449,6 +449,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            ${{ runner.tool_cache }}/cargo
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
@@ -457,6 +458,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
 
       - name: Install build dependencies (Linux)
         if: startsWith(matrix.target, 'x86_64-unknown-linux') || startsWith(matrix.target, 'aarch64-unknown-linux') || startsWith(matrix.target, 'riscv64gc-unknown-linux')
@@ -541,6 +543,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            ${{ runner.tool_cache }}/cargo
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
@@ -549,6 +552,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
 
       - name: Build Rust CLI
         run: cargo build --release --target ${{ matrix.target }}
@@ -596,6 +600,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
+            ${{ runner.tool_cache }}/cargo
             ~/.cargo/bin/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
@@ -604,6 +609,7 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-
 
       - name: Build Rust CLI
         run: cargo build --release --target ${{ matrix.target }}
@@ -631,19 +637,18 @@ jobs:
         manual-approval-alpha-beta,
       ]
     # Skip create-release if only release_docker is selected (Docker is released separately)
-    # For production: require manual approval
-    # For alpha/beta: require manual approval
-    # For workflow_dispatch: no approval needed
+    # For production: require manual approval (should_release may be false initially, but we create release after approval)
+    # For alpha/beta: require manual approval and should_release must be true
+    # For workflow_dispatch: no approval needed, should_release must be true
     if: |
       github.event.inputs.release_docker != 'true' &&
-      needs.prepare-release.outputs.should_release == 'true' &&
       (needs.build-rust-cli-linux.result == 'success' || needs.build-rust-cli-linux.result == 'skipped') &&
       (needs.build-rust-cli-macos.result == 'success' || needs.build-rust-cli-macos.result == 'skipped') &&
       (needs.build-rust-cli-windows.result == 'success' || needs.build-rust-cli-windows.result == 'skipped') &&
       (needs.build-docker-image.result == 'success' || needs.build-docker-image.result == 'skipped') &&
       ((needs.check-changes.outputs.branch_type == 'production' && (needs.manual-approval-production.result == 'success' || github.event_name == 'workflow_dispatch')) ||
-       ((needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta') && (needs.manual-approval-alpha-beta.result == 'success' || github.event_name == 'workflow_dispatch')) ||
-       github.event_name == 'workflow_dispatch')
+       ((needs.check-changes.outputs.branch_type == 'alpha' || needs.check-changes.outputs.branch_type == 'beta') && needs.prepare-release.outputs.should_release == 'true' && (needs.manual-approval-alpha-beta.result == 'success' || github.event_name == 'workflow_dispatch')) ||
+       (github.event_name == 'workflow_dispatch' && needs.prepare-release.outputs.should_release == 'true'))
     permissions:
       contents: write
       actions: read
@@ -718,12 +723,23 @@ jobs:
         run: |
           BRANCH_TYPE="${{ needs.check-changes.outputs.branch_type }}"
 
-          if [ "$BRANCH_TYPE" == "production" ] && [ "${{ steps.increment_after_approval.outputs.should_increment }}" == "true" ]; then
-            # Use incremented version for main branch
-            VERSION="${{ steps.increment_after_approval.outputs.version }}"
-          else
-            # Use version from prepare-release
+          if [ "$BRANCH_TYPE" == "production" ]; then
+            # For production, use incremented version if available, otherwise use current version
+            if [ "${{ steps.increment_after_approval.outputs.should_increment }}" == "true" ]; then
+              VERSION="${{ steps.increment_after_approval.outputs.version }}"
+            else
+              # Get current version from Cargo.toml
+              VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+            fi
+          elif [ "$BRANCH_TYPE" == "alpha" ] || [ "$BRANCH_TYPE" == "beta" ]; then
+            # Use pre-release version from prepare-release
             VERSION="${{ needs.prepare-release.outputs.version }}"
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # For workflow_dispatch, use version from prepare-release
+            VERSION="${{ needs.prepare-release.outputs.version }}"
+          else
+            # Fallback to current version
+            VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
           fi
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -929,8 +945,12 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
           platforms: linux/amd64,linux/arm64
 
   release-cli-linux:
