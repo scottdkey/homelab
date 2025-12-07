@@ -113,7 +113,9 @@ jobs:
             else
               # Last resort: try to use a wrapper script
               echo "⚠️  Creating wrapper for aarch64 musl compilation"
-              printf '#!/bin/bash\n# Wrapper script - this may not work perfectly but it'\''s a fallback\nexec aarch64-linux-gnu-gcc -static "$@"\n' > "$MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc"
+              echo '#!/bin/bash' > "$MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc"
+              echo '# Wrapper script - this may not work perfectly but it is a fallback' >> "$MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc"
+              echo 'exec aarch64-linux-gnu-gcc -static "$@"' >> "$MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc"
               chmod +x "$MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc"
               export PATH="$MUSL_CROSS_DIR/bin:$PATH"
               echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
