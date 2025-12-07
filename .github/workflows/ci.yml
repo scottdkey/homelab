@@ -19,16 +19,6 @@ on:
         required: false
         type: boolean
         default: false
-      release_docker:
-        description: "Release Docker image (vpn) - approves and releases the built image"
-        required: false
-        type: boolean
-        default: false
-      approve_docker_release:
-        description: "Approve Docker release (use after build completes)"
-        required: false
-        type: boolean
-        default: false
       build_cli_linux:
         description: "Build CLI (Linux)"
         required: false
@@ -384,7 +374,7 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push Docker image (staging)
+      - name: Build and push VPN Image
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v5
         with:
@@ -396,19 +386,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
-
-      - name: Build Docker image (PR validation)
-        if: github.event_name == 'pull_request'
-        uses: docker/build-push-action@v5
-        with:
-          context: ./openvpn-container
-          file: ./openvpn-container/Dockerfile
-          push: false
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pr-${{ github.event.pull_request.number }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
-
   create-release:
     name: Create Release
     runs-on: ubuntu-latest
