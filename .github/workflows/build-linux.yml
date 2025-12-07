@@ -256,15 +256,15 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }} (Linux)
+          name: Release v${{ steps.version.outputs.version }}
           body: |
-            ## Linux Release v${{ steps.version.outputs.version }}
+            ## Release v${{ steps.version.outputs.version }}
 
             ### Downloads
-            - See assets below for Linux-specific binaries
+            - See assets below for platform-specific binaries
 
             ---
-            *This release was created automatically by the Linux build workflow.*
+            *This release was created automatically by the build workflows.*
           files: |
             hal-*-linux-*.tar.gz
           draft: false

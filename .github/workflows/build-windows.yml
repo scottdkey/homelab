@@ -147,15 +147,15 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }} (Windows)
+          name: Release v${{ steps.version.outputs.version }}
           body: |
-            ## Windows Release v${{ steps.version.outputs.version }}
+            ## Release v${{ steps.version.outputs.version }}
 
             ### Downloads
-            - See assets below for Windows-specific binaries
+            - See assets below for platform-specific binaries
 
             ---
-            *This release was created automatically by the Windows build workflow.*
+            *This release was created automatically by the build workflows.*
           files: |
             hal-*-windows-*.zip
           draft: false
