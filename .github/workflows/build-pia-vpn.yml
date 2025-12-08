@@ -76,12 +76,23 @@ jobs:
         with:
           version_input: ${{ github.event.inputs.version }}
 
+      - name: Determine experimental flag
+        id: exp_flag
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            echo "value=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.experimental }}" == "true" ]; then
+            echo "value=true" >> $GITHUB_OUTPUT
+          else
+            echo "value=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Determine release type
         id: release_type
         uses: ./.github/actions/determine-release-type
         with:
           event_name: ${{ github.event_name }}
-          experimental_input: ${{ github.event_name == 'push' && 'true' || github.event.inputs.experimental || 'false' }}
+          experimental_input: ${{ steps.exp_flag.outputs.value }}
           version: ${{ steps.version.outputs.version }}
 
       - name: Build Docker image
@@ -122,6 +133,17 @@ jobs:
       packages: write
       id-token: write
     steps:
+      - name: Determine experimental flag
+        id: exp_flag
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            echo "value=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.experimental }}" == "true" ]; then
+            echo "value=true" >> $GITHUB_OUTPUT
+          else
+            echo "value=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Release Docker Image
         id: release
         uses: ./.github/actions/release-docker
@@ -132,7 +154,7 @@ jobs:
           dockerfile: ./openvpn-container/Dockerfile
           version_input: ${{ github.event.inputs.version }}
           event_name: ${{ github.event_name }}
-          experimental_input: ${{ github.event_name == 'push' && 'true' || github.event.inputs.experimental || 'false' }}
+          experimental_input: ${{ steps.exp_flag.outputs.value }}
           release_body: |
             ### PIA VPN Docker Image
 

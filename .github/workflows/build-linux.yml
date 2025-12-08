@@ -106,6 +106,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Determine experimental flag
+        id: exp_flag
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            echo "value=true" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.inputs.experimental }}" == "true" ]; then
+            echo "value=true" >> $GITHUB_OUTPUT
+          else
+            echo "value=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Release CLI
         uses: ./.github/actions/release-cli
         with:
@@ -114,4 +125,4 @@ jobs:
           binary_name: hal
           archive_extension: .tar.gz
           event_name: ${{ github.event_name }}
-          experimental_input: ${{ github.event_name == 'push' && 'true' || github.event.inputs.experimental || 'false' }}
+          experimental_input: ${{ steps.exp_flag.outputs.value }}

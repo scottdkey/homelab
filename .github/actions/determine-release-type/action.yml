@@ -37,7 +37,33 @@ runs:
     - id: release_type
       shell: bash
       run: |
-        if [ "${{ inputs.event_name }}" == "push" ] || [ "${{ inputs.experimental_input }}" == "true" ]; then
+        # Debug output
+        echo "Event name: ${{ inputs.event_name }}"
+        echo "Experimental input: ${{ inputs.experimental_input }}"
+        echo "Version: ${{ inputs.version }}"
+
+        # Determine if this should be experimental
+        # Push events are always experimental
+        # workflow_dispatch uses the experimental_input flag
+        IS_EXPERIMENTAL=false
+
+        if [ "${{ inputs.event_name }}" == "push" ]; then
+          IS_EXPERIMENTAL=true
+          echo "Push event detected - creating experimental release"
+        else
+          # For workflow_dispatch, check the experimental_input
+          # Handle both string "true" and boolean true
+          EXP_INPUT="${{ inputs.experimental_input }}"
+          if [ "$EXP_INPUT" == "true" ] || [ "$EXP_INPUT" == "True" ] || [ "$EXP_INPUT" == "TRUE" ]; then
+            IS_EXPERIMENTAL=true
+            echo "Experimental flag set to true - creating experimental release"
+          else
+            IS_EXPERIMENTAL=false
+            echo "Experimental flag not set or false - creating stable release"
+          fi
+        fi
+
+        if [ "$IS_EXPERIMENTAL" == "true" ]; then
           echo "type=experimental" >> $GITHUB_OUTPUT
           echo "tag=experimental" >> $GITHUB_OUTPUT
           echo "name=Experimental Release" >> $GITHUB_OUTPUT
