@@ -82,7 +82,7 @@ pub fn check_sudo_access<E: CommandExecutor>(exec: &E, is_remote: bool) -> Resul
         println!("Error: Passwordless sudo is required for automated provisioning.");
         println!();
         if is_remote {
-            println!("To configure passwordless sudo, run on the target host:");
+        println!("To configure passwordless sudo, run on the target host:");
         } else {
             println!("To configure passwordless sudo, run:");
         }
@@ -92,11 +92,11 @@ pub fn check_sudo_access<E: CommandExecutor>(exec: &E, is_remote: bool) -> Resul
         println!("  USERNAME ALL=(ALL) NOPASSWD: ALL");
         println!();
         if is_remote {
-            println!("Or for more security, limit to specific commands:");
-            println!(
-                "  USERNAME ALL=(ALL) NOPASSWD: /usr/bin/docker, /bin/systemctl, /usr/sbin/usermod, /bin/mkdir, /bin/tee, /bin/cp, /bin/mv, /bin/rm, /usr/bin/python3"
-            );
-            println!();
+        println!("Or for more security, limit to specific commands:");
+        println!(
+            "  USERNAME ALL=(ALL) NOPASSWD: /usr/bin/docker, /bin/systemctl, /usr/sbin/usermod, /bin/mkdir, /bin/tee, /bin/cp, /bin/mv, /bin/rm, /usr/bin/python3"
+        );
+        println!();
         }
         anyhow::bail!("Passwordless sudo not configured");
     }

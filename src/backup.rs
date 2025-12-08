@@ -25,10 +25,10 @@ pub fn backup_host(hostname: &str, config: &EnvConfig) -> Result<()> {
     if is_local {
         println!("Backing up all Docker volumes locally on {}...", hostname);
     } else {
-        println!(
-            "Backing up all Docker volumes on {} ({})...",
-            hostname, target_host
-        );
+    println!(
+        "Backing up all Docker volumes on {} ({})...",
+        hostname, target_host
+    );
     }
     println!();
 
@@ -61,7 +61,7 @@ pub fn list_backups(hostname: &str, config: &EnvConfig) -> Result<()> {
     if is_local {
         println!("Listing backups locally for {}...", hostname);
     } else {
-        println!("Listing backups for {} ({})...", hostname, target_host);
+    println!("Listing backups for {} ({})...", hostname, target_host);
     }
     println!();
 

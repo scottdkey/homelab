@@ -609,11 +609,11 @@ fn _copy_ssh_key(host: &str, server_user: Option<&str>, target_user: Option<&str
                 )
             })?;
 
-        println!(
-            "✓ SSH key copied successfully to {}@{} (installed for user: {})",
-            server_username, host, target_username
-        );
-        Ok(())
+            println!(
+                "✓ SSH key copied successfully to {}@{} (installed for user: {})",
+                server_username, host, target_username
+            );
+            Ok(())
     } else {
         // Same user, use standard ssh-copy-id
         if !local::check_command_exists("ssh-copy-id") {
