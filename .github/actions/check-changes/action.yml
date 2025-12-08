@@ -30,17 +30,13 @@ runs:
       id: build_filters
       shell: bash
       run: |
-        # Format each path as a YAML list item with quotes
-        echo "src:" > /tmp/filters.txt
-        echo "${{ inputs.src_paths }}" | while IFS= read -r line; do
-          [ -n "$line" ] && echo "          - '$line'" >> /tmp/filters.txt
-        done
-        echo "        docker:" >> /tmp/filters.txt
-        echo "${{ inputs.docker_paths }}" | while IFS= read -r line; do
-          [ -n "$line" ] && echo "          - '$line'" >> /tmp/filters.txt
-        done
+        {
+          echo 'src:'
+          echo "${{ inputs.src_paths }}" | grep -v '^$' | sed "s/^/          - '/; s/\$/'/"
+          echo '        docker:'
+          echo "${{ inputs.docker_paths }}" | grep -v '^$' | sed "s/^/          - '/; s/\$/'/"
+        } > /tmp/filters.txt
 
-        # Output filters as multiline string
         {
           echo 'filters<<EOF'
           cat /tmp/filters.txt
