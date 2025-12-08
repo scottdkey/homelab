@@ -3,14 +3,14 @@ description: Check if source or docker files have changed
 
 inputs:
   src_paths:
-    description: "Paths to check for source code changes"
+    description: "Paths to check for source code changes (newline-separated)"
     required: false
     default: |
       src/**
       Cargo.toml
       Cargo.lock
   docker_paths:
-    description: "Paths to check for docker changes"
+    description: "Paths to check for docker changes (newline-separated)"
     required: false
     default: |
       openvpn-container/**
@@ -26,11 +26,28 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Build filters
+      id: build_filters
+      shell: bash
+      run: |
+        # Format each path as a YAML list item with quotes
+        echo "src:" > /tmp/filters.txt
+        echo "${{ inputs.src_paths }}" | while IFS= read -r line; do
+          [ -n "$line" ] && echo "          - '$line'" >> /tmp/filters.txt
+        done
+        echo "        docker:" >> /tmp/filters.txt
+        echo "${{ inputs.docker_paths }}" | while IFS= read -r line; do
+          [ -n "$line" ] && echo "          - '$line'" >> /tmp/filters.txt
+        done
+
+        # Output filters as multiline string
+        {
+          echo 'filters<<EOF'
+          cat /tmp/filters.txt
+          echo 'EOF'
+        } >> $GITHUB_OUTPUT
+
     - uses: dorny/paths-filter@v2
       id: filter
       with:
-        filters: |
-          src:
-            ${{ inputs.src_paths }}
-          docker:
-            ${{ inputs.docker_paths }}
+        filters: ${{ steps.build_filters.outputs.filters }}
