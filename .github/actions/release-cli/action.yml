@@ -22,6 +22,10 @@ inputs:
     description: "Experimental input flag"
     required: false
     default: "false"
+  release_body:
+    description: "Custom release body (optional)"
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -57,10 +61,58 @@ runs:
         experimental_input: ${{ inputs.experimental_input }}
         version: ${{ steps.version.outputs.version }}
 
+    - name: Generate install scripts
+      id: install_scripts
+      shell: bash
+      run: |
+        PLATFORM="${{ inputs.platform }}"
+        TAG="${{ steps.release_type.outputs.tag }}"
+        REPO="scottdkey/homelab"
+
+        if [ "$PLATFORM" == "linux" ]; then
+          printf '%s\n' \
+            '#### Install on Linux:' \
+            '```bash' \
+            '# Download and install (latest)' \
+            "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash" \
+            '' \
+            '# Or install specific version' \
+            "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash -s ${TAG}" \
+            '```' > /tmp/install_script.txt
+        elif [ "$PLATFORM" == "darwin" ]; then
+          printf '%s\n' \
+            '#### Install on macOS:' \
+            '```bash' \
+            '# Download and install (latest)' \
+            "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash" \
+            '' \
+            '# Or install specific version' \
+            "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash -s ${TAG}" \
+            '```' > /tmp/install_script.txt
+        elif [ "$PLATFORM" == "windows" ]; then
+          printf '%s\n' \
+            '#### Install on Windows (PowerShell):' \
+            '```powershell' \
+            '# Download and install (latest)' \
+            "irm https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex" \
+            '' \
+            '# Or install specific version' \
+            "irm https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex -ArgumentList ${TAG}" \
+            '```' > /tmp/install_script.txt
+        else
+          echo "" > /tmp/install_script.txt
+        fi
+
+        echo "script<<EOF" >> $GITHUB_OUTPUT
+        cat /tmp/install_script.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Create GitHub Release
       uses: ./.github/actions/create-release
       with:
         tag: ${{ steps.release_type.outputs.tag }}
         name: ${{ steps.release_type.outputs.name }}
+        body: |
+          ${{ inputs.release_body != '' && inputs.release_body || format('## {0}\n\n### Downloads\n\nDownload the appropriate binary for your platform from the assets below.\n\n{1}\n\n---\n*This release was created automatically by the build workflows.*', steps.release_type.outputs.name, steps.install_scripts.outputs.script) }}
         files: ${{ steps.prepare.outputs.archive_pattern }}
         prerelease: ${{ steps.release_type.outputs.prerelease }}

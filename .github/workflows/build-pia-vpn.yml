@@ -155,9 +155,52 @@ jobs:
           release_body: |
             ### PIA VPN Docker Image (Experimental)
 
-            Pull the image:
+            #### Pull the image:
             ```bash
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:experimental
+            ```
+
+            #### Install using Docker Run:
+            ```bash
+            docker run -d \
+              --name pia-vpn \
+              --cap-add=NET_ADMIN \
+              --cap-add=NET_RAW \
+              --device=/dev/net/tun \
+              --dns 1.1.1.1 \
+              --dns 8.8.8.8 \
+              -p 8888:8888 \
+              -e UPDATE_CONFIGS=true \
+              -e PIA_USERNAME=your_username \
+              -e PIA_PASSWORD=your_password \
+              -v $(pwd)/config/vpn:/config \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:experimental
+            ```
+
+            #### Install using Docker Compose:
+            ```bash
+            mkdir -p config/vpn
+            cat > docker-compose.yml << 'EOF'
+            services:
+              openvpn-pia:
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:experimental
+                container_name: openvpn-pia
+                cap_add:
+                  - NET_ADMIN
+                  - NET_RAW
+                devices:
+                  - /dev/net/tun:/dev/net/tun
+                ports:
+                  - "8888:8888"
+                environment:
+                  - UPDATE_CONFIGS=true
+                  - PIA_USERNAME=your_username
+                  - PIA_PASSWORD=your_password
+                volumes:
+                  - ./config/vpn:/config
+                restart: unless-stopped
+            EOF
+            docker-compose up -d
             ```
 
             ---
@@ -205,7 +248,7 @@ jobs:
           release_body: |
             ### PIA VPN Docker Image
 
-            Pull the image:
+            #### Pull the image:
             ```bash
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ```
@@ -214,6 +257,49 @@ jobs:
             ```
             ```bash
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.sha.outputs.short }}
+            ```
+
+            #### Install using Docker Run:
+            ```bash
+            docker run -d \
+              --name pia-vpn \
+              --cap-add=NET_ADMIN \
+              --cap-add=NET_RAW \
+              --device=/dev/net/tun \
+              --dns 1.1.1.1 \
+              --dns 8.8.8.8 \
+              -p 8888:8888 \
+              -e UPDATE_CONFIGS=true \
+              -e PIA_USERNAME=your_username \
+              -e PIA_PASSWORD=your_password \
+              -v $(pwd)/config/vpn:/config \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ```
+
+            #### Install using Docker Compose:
+            ```bash
+            mkdir -p config/vpn
+            cat > docker-compose.yml << 'EOF'
+            services:
+              openvpn-pia:
+                image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+                container_name: openvpn-pia
+                cap_add:
+                  - NET_ADMIN
+                  - NET_RAW
+                devices:
+                  - /dev/net/tun:/dev/net/tun
+                ports:
+                  - "8888:8888"
+                environment:
+                  - UPDATE_CONFIGS=true
+                  - PIA_USERNAME=your_username
+                  - PIA_PASSWORD=your_password
+                volumes:
+                  - ./config/vpn:/config
+                restart: unless-stopped
+            EOF
+            docker-compose up -d
             ```
 
             ---
