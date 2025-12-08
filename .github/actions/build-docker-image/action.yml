@@ -29,6 +29,18 @@ inputs:
     description: "Output specification (e.g., type=oci,dest=/tmp/image.tar)"
     required: false
     default: ""
+  tag_latest:
+    description: "Whether to also tag as 'latest'"
+    required: false
+    default: "true"
+  tag_sha:
+    description: "Whether to also tag with git SHA"
+    required: false
+    default: "false"
+  git_sha:
+    description: "Git commit SHA to use for tagging"
+    required: false
+    default: ""
 
 outputs:
   tags:
@@ -41,14 +53,27 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Prepare tags
+      id: prepare_tags
+      shell: bash
+      run: |
+        TAGS="type=raw,value=${{ inputs.docker_tag }}"
+        if [ "${{ inputs.tag_latest }}" == "true" ]; then
+          TAGS="$TAGS"$'\n'"type=raw,value=latest"
+        fi
+        if [ "${{ inputs.tag_sha }}" == "true" ] && [ -n "${{ inputs.git_sha }}" ]; then
+          TAGS="$TAGS"$'\n'"type=raw,value=${{ inputs.git_sha }}"
+        fi
+        echo "tags<<EOF" >> $GITHUB_OUTPUT
+        echo "$TAGS" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Extract metadata
       id: meta
       uses: docker/metadata-action@v5
       with:
         images: ${{ inputs.registry }}/${{ inputs.image_name }}
-        tags: |
-          type=raw,value=${{ inputs.docker_tag }}
-          type=raw,value=latest
+        tags: ${{ steps.prepare_tags.outputs.tags }}
 
     - name: Build Docker image (with outputs)
       if: inputs.outputs != ''

@@ -75,6 +75,9 @@ runs:
         dockerfile: ${{ inputs.dockerfile }}
         push: "true"
         outputs: type=oci,dest=/tmp/docker-image.tar
+        tag_latest: ${{ steps.release_type.outputs.type == 'stable' && 'true' || 'false' }}
+        tag_sha: ${{ steps.release_type.outputs.type == 'stable' && 'true' || 'false' }}
+        git_sha: ${{ github.sha }}
 
     - name: Prepare Docker image for release
       id: prepare_image
