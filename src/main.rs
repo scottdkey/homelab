@@ -105,7 +105,7 @@ enum Commands {
     Update {
         /// Use experimental channel for updates (versionless, continuously updated)
         #[arg(long)]
-        beta: bool,
+        experimental: bool,
         /// Force download and install the latest version (skips version check)
         #[arg(long)]
         force: bool,
@@ -316,12 +316,15 @@ fn main() -> Result<()> {
                 vpn::verify_vpn(&hostname, &config)?;
             }
         },
-        Commands::Update { beta, force } => {
+        Commands::Update {
+            experimental,
+            force,
+        } => {
             let current_version = env!("CARGO_PKG_VERSION");
 
             if force {
                 // Force mode: get the latest version and install it regardless of current version
-                if beta {
+                if experimental {
                     println!("Force mode: Downloading latest experimental version...");
                     let latest_version = update::get_latest_experimental_version()?;
                     println!("Latest experimental version: {}", latest_version);
@@ -332,8 +335,8 @@ fn main() -> Result<()> {
                     println!("Latest version: {}", latest_version);
                     update::download_and_install_update(&latest_version)?;
                 }
-            } else if beta {
-                // Experimental channel: always check for updates (versionless)
+            } else if experimental {
+                // Experimental channel: check for updates based on timestamps (versionless)
                 if let Ok(Some(new_version)) =
                     update::check_for_experimental_updates(current_version)
                 {

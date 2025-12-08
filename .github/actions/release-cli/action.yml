@@ -68,51 +68,130 @@ runs:
         PLATFORM="${{ inputs.platform }}"
         TAG="${{ steps.release_type.outputs.tag }}"
         REPO="scottdkey/homelab"
+        REGISTRY="ghcr.io"
+        IMAGE_NAME="scottdkey/pia-vpn"
+        IS_EXPERIMENTAL="${{ steps.release_type.outputs.type == 'experimental' && 'true' || 'false' }}"
+
+        # Determine Docker image tags
+        if [ "$IS_EXPERIMENTAL" == "true" ]; then
+          DOCKER_TAG="experimental"
+          DOCKER_PULL_LINES="docker pull ${REGISTRY}/${IMAGE_NAME}:experimental"
+        else
+          VERSION="${{ steps.version.outputs.version }}"
+          SHORT_SHA="$(echo '${{ github.sha }}' | head -c 6)"
+          DOCKER_PULL_LINES="docker pull ${REGISTRY}/${IMAGE_NAME}:latest
+        docker pull ${REGISTRY}/${IMAGE_NAME}:${VERSION}
+        docker pull ${REGISTRY}/${IMAGE_NAME}:${SHORT_SHA}"
+        fi
 
         if [ "$PLATFORM" == "linux" ]; then
+          PLATFORM_DISPLAY="Linux"
           printf '%s\n' \
+            '### Linux CLI' \
+            '' \
             '#### Install on Linux:' \
-            '```bash' \
+            '\`\`\`bash' \
             '# Download and install (latest)' \
-            "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash" \
+            'curl -fsSL https://raw.githubusercontent.com/REPO_PLACEHOLDER/main/scripts/install.sh | bash' \
             '' \
             '# Or install specific version' \
-            "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash -s ${TAG}" \
-            '```' > /tmp/install_script.txt
+            'curl -fsSL https://raw.githubusercontent.com/REPO_PLACEHOLDER/main/scripts/install.sh | bash -s TAG_PLACEHOLDER' \
+            '\`\`\`' \
+            '' \
+            '#### Docker Image:' \
+            '\`\`\`bash' \
+            'DOCKER_TAGS_PLACEHOLDER' \
+            '\`\`\`' > /tmp/install_script.txt
         elif [ "$PLATFORM" == "darwin" ]; then
+          PLATFORM_DISPLAY="macOS"
           printf '%s\n' \
+            '### macOS CLI' \
+            '' \
             '#### Install on macOS:' \
-            '```bash' \
+            '\`\`\`bash' \
             '# Download and install (latest)' \
-            "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash" \
+            'curl -fsSL https://raw.githubusercontent.com/REPO_PLACEHOLDER/main/scripts/install.sh | bash' \
             '' \
             '# Or install specific version' \
-            "curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash -s ${TAG}" \
-            '```' > /tmp/install_script.txt
+            'curl -fsSL https://raw.githubusercontent.com/REPO_PLACEHOLDER/main/scripts/install.sh | bash -s TAG_PLACEHOLDER' \
+            '\`\`\`' \
+            '' \
+            '#### Docker Image:' \
+            '\`\`\`bash' \
+            'DOCKER_TAGS_PLACEHOLDER' \
+            '\`\`\`' > /tmp/install_script.txt
         elif [ "$PLATFORM" == "windows" ]; then
+          PLATFORM_DISPLAY="Windows"
           printf '%s\n' \
+            '### Windows CLI' \
+            '' \
             '#### Install on Windows (PowerShell):' \
-            '```powershell' \
+            '\`\`\`powershell' \
             '# Download and install (latest)' \
-            "irm https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex" \
+            'irm https://raw.githubusercontent.com/REPO_PLACEHOLDER/main/scripts/install.ps1 | iex' \
             '' \
             '# Or install specific version' \
-            "irm https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex -ArgumentList ${TAG}" \
-            '```' > /tmp/install_script.txt
+            'irm https://raw.githubusercontent.com/REPO_PLACEHOLDER/main/scripts/install.ps1 | iex -ArgumentList TAG_PLACEHOLDER' \
+            '\`\`\`' \
+            '' \
+            '#### Docker Image:' \
+            '\`\`\`bash' \
+            'DOCKER_TAGS_PLACEHOLDER' \
+            '\`\`\`' > /tmp/install_script.txt
         else
           echo "" > /tmp/install_script.txt
         fi
 
+        # Replace placeholders (including escaped backticks)
+        sed -i "s|REPO_PLACEHOLDER|${REPO}|g" /tmp/install_script.txt
+        sed -i "s|TAG_PLACEHOLDER|${TAG}|g" /tmp/install_script.txt
+        sed -i "s|DOCKER_TAGS_PLACEHOLDER|${DOCKER_PULL_LINES}|g" /tmp/install_script.txt
+        # Replace escaped backticks with actual backticks
+        sed -i 's|\\`\\`\\`|```|g' /tmp/install_script.txt
+
         echo "script<<EOF" >> $GITHUB_OUTPUT
         cat /tmp/install_script.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Check if platform content already exists in release
+      id: check_existing
+      shell: bash
+      run: |
+        TAG="${{ steps.release_type.outputs.tag }}"
+        PLATFORM="${{ inputs.platform }}"
+
+        # Determine platform display name
+        if [ "$PLATFORM" == "linux" ]; then
+          PLATFORM_DISPLAY="Linux"
+        elif [ "$PLATFORM" == "darwin" ]; then
+          PLATFORM_DISPLAY="macOS"
+        else
+          PLATFORM_DISPLAY="Windows"
+        fi
+
+        PLATFORM_MARKER="### ${PLATFORM_DISPLAY} CLI"
+
+        # Try to fetch existing release body
+        EXISTING_BODY=$(curl -s \
+          -H "Accept: application/vnd.github.v3+json" \
+          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          "https://api.github.com/repos/${{ github.repository }}/releases/tags/${TAG}" \
+          | jq -r '.body // ""' 2>/dev/null || echo "")
+
+        if [ -n "$EXISTING_BODY" ] && echo "$EXISTING_BODY" | grep -qF "$PLATFORM_MARKER"; then
+          echo "Platform content already exists in release body"
+          echo "should_append=false" >> $GITHUB_OUTPUT
+        else
+          echo "Platform content not found, will append"
+          echo "should_append=true" >> $GITHUB_OUTPUT
+        fi
 
     - name: Create GitHub Release
       uses: ./.github/actions/create-release
       with:
         tag: ${{ steps.release_type.outputs.tag }}
         name: ${{ steps.release_type.outputs.name }}
-        body: |
-          ${{ inputs.release_body != '' && inputs.release_body || format('## {0}\n\n### Downloads\n\nDownload the appropriate binary for your platform from the assets below.\n\n{1}\n\n---\n*This release was created automatically by the build workflows.*', steps.release_type.outputs.name, steps.install_scripts.outputs.script) }}
+        body: ${{ inputs.release_body != '' && inputs.release_body || steps.install_scripts.outputs.script }}
         files: ${{ steps.prepare.outputs.archive_pattern }}
         prerelease: ${{ steps.release_type.outputs.prerelease }}
+        append_body: ${{ steps.check_existing.outputs.should_append }}

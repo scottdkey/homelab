@@ -12,6 +12,8 @@ const REPO_NAME: &str = "homelab";
 struct Release {
     tag_name: String,
     prerelease: bool,
+    #[serde(default)]
+    published_at: Option<String>,
     #[serde(skip)]
     _assets: Vec<Asset>,
 }
@@ -93,11 +95,46 @@ pub fn check_for_experimental_updates(_current_version: &str) -> Result<Option<S
         return Ok(None);
     }
 
-    let _release: Release = response.json().context("Failed to parse release JSON")?;
+    let release: Release = response.json().context("Failed to parse release JSON")?;
 
-    // For experimental, we always consider it "newer" (versionless updates)
-    // Always return it as available since it's versionless and continuously updated
-    Ok(Some("experimental".to_string()))
+    // For experimental, check if the release is newer than the current executable
+    // by comparing timestamps
+    if let Some(published_at_str) = &release.published_at {
+        // Parse the published_at timestamp (ISO 8601 format)
+        let published_at = chrono::DateTime::parse_from_rfc3339(published_at_str)
+            .context("Failed to parse release timestamp")?;
+
+        // Get the current executable's modification time
+        let current_exe = env::current_exe().context("Failed to get current executable path")?;
+        let metadata =
+            std::fs::metadata(&current_exe).context("Failed to get executable metadata")?;
+
+        #[cfg(unix)]
+        let exe_mtime = {
+            use std::os::unix::fs::MetadataExt;
+            std::time::SystemTime::UNIX_EPOCH
+                + std::time::Duration::from_secs(metadata.mtime() as u64)
+        };
+
+        #[cfg(windows)]
+        let exe_mtime = metadata
+            .modified()
+            .context("Failed to get executable modification time")?;
+
+        // Convert SystemTime to DateTime<Utc>
+        let exe_datetime: chrono::DateTime<chrono::Utc> = exe_mtime.into();
+        let published_datetime: chrono::DateTime<chrono::Utc> = published_at.into();
+
+        // Only return experimental if the release is newer than the current executable
+        if published_datetime > exe_datetime {
+            return Ok(Some("experimental".to_string()));
+        }
+    } else {
+        // If no timestamp available, assume it's newer (fallback behavior)
+        return Ok(Some("experimental".to_string()));
+    }
+
+    Ok(None)
 }
 
 pub fn get_latest_version() -> Result<String> {

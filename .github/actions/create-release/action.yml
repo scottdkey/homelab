@@ -27,6 +27,10 @@ inputs:
     description: "Whether this is a prerelease"
     required: false
     default: "false"
+  append_body:
+    description: "Append to existing release body instead of overwriting"
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -41,6 +45,7 @@ runs:
         files: ${{ inputs.files }}
         draft: false
         prerelease: ${{ inputs.prerelease }}
+        append_body: ${{ inputs.append_body }}
     - name: Create or update release (without files)
       if: inputs.files == ''
       uses: softprops/action-gh-release@v1
@@ -50,3 +55,4 @@ runs:
         body: ${{ inputs.body }}
         draft: false
         prerelease: ${{ inputs.prerelease }}
+        append_body: ${{ inputs.append_body }}
