@@ -32,9 +32,9 @@ runs:
       run: |
         {
           echo 'src:'
-          echo "${{ inputs.src_paths }}" | grep -v '^$' | sed "s/^/          - '/; s/\$/'/"
-          echo '        docker:'
-          echo "${{ inputs.docker_paths }}" | grep -v '^$' | sed "s/^/          - '/; s/\$/'/"
+          echo "${{ inputs.src_paths }}" | grep -v '^$' | sed "s/^/  - '/; s/\$/'/"
+          echo 'docker:'
+          echo "${{ inputs.docker_paths }}" | grep -v '^$' | sed "s/^/  - '/; s/\$/'/"
         } > /tmp/filters.txt
 
         {
