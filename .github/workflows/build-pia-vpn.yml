@@ -180,6 +180,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Get version
+        id: version
+        uses: ./.github/actions/get-version
+        with:
+          version_input: ${{ github.event.inputs.version }}
+
+      - name: Get short SHA
+        id: sha
+        run: |
+          echo "short=$(echo '${{ github.sha }}' | head -c 6)" >> $GITHUB_OUTPUT
+
       - name: Release Docker Image (Stable)
         id: release
         uses: ./.github/actions/release-docker
@@ -199,10 +210,10 @@ jobs:
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ```
             ```bash
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.release.outputs.version }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ```
             ```bash
-            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.sha.outputs.short }}
             ```
 
             ---
