@@ -76,31 +76,34 @@ pub fn check_sudo_access<E: CommandExecutor>(exec: &E, is_remote: bool) -> Resul
         return Ok(());
     }
 
-    let output = exec.execute_simple("sudo", &["-n", "true"])?;
-
-    if !output.status.success() {
-        println!("Error: Passwordless sudo is required for automated provisioning.");
-        println!();
-        if is_remote {
-        println!("To configure passwordless sudo, run on the target host:");
-        } else {
-            println!("To configure passwordless sudo, run:");
+    // For local execution, use interactive mode to allow password prompts
+    // For remote execution, we still need passwordless sudo (SSH typically doesn't support interactive prompts)
+    if is_remote {
+        // Remote execution: check for passwordless sudo
+        let output = exec.execute_simple("sudo", &["-n", "true"])?;
+        if !output.status.success() {
+            println!("Error: Passwordless sudo is required for remote provisioning.");
+            println!();
+            println!("To configure passwordless sudo, run on the target host:");
+            println!("  sudo visudo");
+            println!();
+            println!("Then add this line (replace USERNAME with your username):");
+            println!("  USERNAME ALL=(ALL) NOPASSWD: ALL");
+            println!();
+            println!("Or for more security, limit to specific commands:");
+            println!(
+                "  USERNAME ALL=(ALL) NOPASSWD: /usr/bin/docker, /bin/systemctl, /usr/sbin/usermod, /bin/mkdir, /bin/tee, /bin/cp, /bin/mv, /bin/rm, /usr/bin/python3"
+            );
+            println!();
+            anyhow::bail!("Passwordless sudo not configured");
         }
-        println!("  sudo visudo");
-        println!();
-        println!("Then add this line (replace USERNAME with your username):");
-        println!("  USERNAME ALL=(ALL) NOPASSWD: ALL");
-        println!();
-        if is_remote {
-        println!("Or for more security, limit to specific commands:");
-        println!(
-            "  USERNAME ALL=(ALL) NOPASSWD: /usr/bin/docker, /bin/systemctl, /usr/sbin/usermod, /bin/mkdir, /bin/tee, /bin/cp, /bin/mv, /bin/rm, /usr/bin/python3"
-        );
-        println!();
-        }
-        anyhow::bail!("Passwordless sudo not configured");
+        println!("✓ Passwordless sudo configured");
+    } else {
+        // Local execution: use interactive mode to prompt for password if needed
+        println!("Testing sudo access (you may be prompted for your password)...");
+        exec.execute_interactive("sudo", &["-v"])?;
+        println!("✓ Sudo access verified");
     }
 
-    println!("✓ Passwordless sudo configured");
     Ok(())
 }
