@@ -1,0 +1,29 @@
+name: Get Version
+description: Get version from Cargo.toml or input
+
+inputs:
+  version_input:
+    description: "Manual version input (optional)"
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: "Version string"
+    value: ${{ steps.version.outputs.version }}
+
+runs:
+  using: composite
+  steps:
+    - id: version
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version_input }}" ]; then
+          VERSION="${{ inputs.version_input }}"
+        else
+          VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+        fi
+        # Remove 'v' prefix if present
+        VERSION="${VERSION#v}"
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Release version: $VERSION"

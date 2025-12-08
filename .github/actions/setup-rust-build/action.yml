@@ -1,0 +1,33 @@
+name: Setup Rust Build Environment
+description: Checkout code, install Rust, and cache Cargo dependencies
+
+inputs:
+  target:
+    description: "Rust target triple (e.g., x86_64-unknown-linux-gnu)"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ inputs.target }}
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ runner.tool_cache }}/cargo
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ inputs.target }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-${{ inputs.target }}-
+          ${{ runner.os }}-cargo-

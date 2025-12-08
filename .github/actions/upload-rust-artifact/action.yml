@@ -1,0 +1,30 @@
+name: Upload Rust Artifact
+description: Upload built Rust binary as artifact
+
+inputs:
+  target:
+    description: "Rust target triple"
+    required: true
+  binary_path:
+    description: "Path to binary relative to workspace root"
+    required: true
+  retention_days:
+    description: "Number of days to retain artifact"
+    required: false
+    default: "90"
+  skip_target:
+    description: "Whether to skip upload for this target"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Upload artifact
+      if: inputs.skip_target != 'true' && (inputs.target != 'aarch64-unknown-linux-musl' || env.SKIP_TARGET != 'true')
+      uses: actions/upload-artifact@v4
+      with:
+        name: hal-${{ inputs.target }}
+        path: ${{ inputs.binary_path }}
+        retention-days: ${{ inputs.retention_days }}
+        if-no-files-found: error

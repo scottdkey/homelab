@@ -1,6 +1,9 @@
 name: Build and Release Windows
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       build:
@@ -17,6 +20,11 @@ on:
         description: "Version to release (defaults to Cargo.toml version)"
         required: false
         type: string
+      experimental:
+        description: "Create experimental release"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -26,137 +34,62 @@ env:
   RUST_VERSION: stable
 
 jobs:
+  check-changes:
+    name: Check Changed Files
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      src: ${{ steps.check.outputs.src }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/check-changes
+        id: check
+
   build:
     name: Build Windows CLI
     runs-on: windows-latest
-    if: github.event.inputs.build == 'true'
+    if: |
+      (github.event_name == 'push' && (needs.check-changes.outputs.src == 'true' || always())) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.build == 'true')
+    needs: check-changes
     strategy:
       matrix:
         target:
           - x86_64-pc-windows-msvc
           - aarch64-pc-windows-msvc
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust build environment
+        uses: ./.github/actions/setup-rust-build
         with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ runner.tool_cache }}/cargo
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.target }}-
-            ${{ runner.os }}-cargo-
+          target: ${{ matrix.target }}
 
       - name: Build Rust CLI
-        run: cargo build --release --target ${{ matrix.target }}
+        uses: ./.github/actions/build-rust-cli
+        with:
+          target: ${{ matrix.target }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload-rust-artifact
         with:
-          name: hal-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/hal.exe
-          retention-days: 90
-          if-no-files-found: error
+          target: ${{ matrix.target }}
+          binary_path: target/${{ matrix.target }}/release/hal.exe
 
   release:
     name: Release Windows CLI
     runs-on: ubuntu-latest
-    needs: build
+    needs: [check-changes, build]
     if: |
-      github.event.inputs.release == 'true' &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (github.event_name == 'push' && needs.build.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped'))
     permissions:
       contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Get version
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-          fi
-          # Remove 'v' prefix if present
-          VERSION="${VERSION#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Release version: $VERSION"
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Release CLI
+        uses: ./.github/actions/release-cli
         with:
-          path: artifacts
-
-      - name: Prepare release archives
-        run: |
-          mkdir -p release
-          VERSION="${{ steps.version.outputs.version }}"
-
-          for artifact_dir in artifacts/hal-*/; do
-            if [ -d "$artifact_dir" ]; then
-              TARGET=$(basename "$artifact_dir" | sed 's/hal-//')
-              echo "Processing: $TARGET"
-              
-              # Extract architecture from target
-              ARCH_RAW=$(echo "$TARGET" | cut -d'-' -f1)
-              
-              # Convert architecture names
-              case "$ARCH_RAW" in
-                x86_64)
-                  ARCH="amd64"
-                  ;;
-                aarch64)
-                  ARCH="arm64"
-                  ;;
-                *)
-                  ARCH="$ARCH_RAW"
-                  ;;
-              esac
-              
-              if [ -f "$artifact_dir/hal.exe" ]; then
-                BINARY_NAME="hal.exe"
-                OS="windows"
-                
-                mkdir -p "release/${OS}-${ARCH}"
-                cp "$artifact_dir/$BINARY_NAME" "release/${OS}-${ARCH}/$BINARY_NAME"
-                
-                ARCHIVE_NAME="hal-${VERSION}-${OS}-${ARCH}.zip"
-                cd "release/${OS}-${ARCH}"
-                zip -r "../../$ARCHIVE_NAME" "$BINARY_NAME"
-                cd ../..
-                echo "Created: $ARCHIVE_NAME"
-              fi
-            fi
-          done
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }}
-          body: |
-            ## Release v${{ steps.version.outputs.version }}
-
-            ### Downloads
-            - See assets below for platform-specific binaries
-
-            ---
-            *This release was created automatically by the build workflows.*
-          files: |
-            hal-*-windows-*.zip
-          draft: false
-          prerelease: false
+          version_input: ${{ github.event.inputs.version }}
+          platform: windows
+          binary_name: hal.exe
+          archive_extension: .zip
+          event_name: ${{ github.event_name }}
+          experimental_input: ${{ github.event.inputs.experimental }}

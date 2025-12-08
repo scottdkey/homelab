@@ -1,0 +1,85 @@
+name: Build Docker Image
+description: Extract metadata and build Docker image
+
+inputs:
+  registry:
+    description: "Container registry"
+    required: true
+  image_name:
+    description: "Image name"
+    required: true
+  docker_tag:
+    description: "Docker tag to use"
+    required: true
+  context:
+    description: "Docker build context path"
+    required: true
+  dockerfile:
+    description: "Path to Dockerfile"
+    required: true
+  platforms:
+    description: "Platforms to build for (comma-separated)"
+    required: false
+    default: "linux/amd64,linux/arm64"
+  push:
+    description: "Whether to push the image"
+    required: false
+    default: "false"
+  outputs:
+    description: "Output specification (e.g., type=oci,dest=/tmp/image.tar)"
+    required: false
+    default: ""
+
+outputs:
+  tags:
+    description: "Docker tags"
+    value: ${{ steps.meta.outputs.tags }}
+  labels:
+    description: "Docker labels"
+    value: ${{ steps.meta.outputs.labels }}
+
+runs:
+  using: composite
+  steps:
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ inputs.registry }}/${{ inputs.image_name }}
+        tags: |
+          type=raw,value=${{ inputs.docker_tag }}
+          type=raw,value=latest
+
+    - name: Build Docker image (with outputs)
+      if: inputs.outputs != ''
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile }}
+        push: ${{ inputs.push }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: |
+          type=gha
+          type=registry,ref=${{ inputs.registry }}/${{ inputs.image_name }}:buildcache
+        cache-to: |
+          type=gha,mode=max
+          type=registry,ref=${{ inputs.registry }}/${{ inputs.image_name }}:buildcache,mode=max
+        platforms: ${{ inputs.platforms }}
+        outputs: ${{ inputs.outputs }}
+    - name: Build Docker image (without outputs)
+      if: inputs.outputs == ''
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile }}
+        push: ${{ inputs.push }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: |
+          type=gha
+          type=registry,ref=${{ inputs.registry }}/${{ inputs.image_name }}:buildcache
+        cache-to: |
+          type=gha,mode=max
+          type=registry,ref=${{ inputs.registry }}/${{ inputs.image_name }}:buildcache,mode=max
+        platforms: ${{ inputs.platforms }}

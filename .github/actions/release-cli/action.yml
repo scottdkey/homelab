@@ -1,0 +1,66 @@
+name: Release CLI
+description: Complete release workflow for CLI binaries (get version, download artifacts, prepare archives, determine type, create release)
+
+inputs:
+  version_input:
+    description: "Manual version input (optional)"
+    required: false
+    default: ""
+  platform:
+    description: "Platform (linux, darwin, windows)"
+    required: true
+  binary_name:
+    description: "Binary name (hal or hal.exe)"
+    required: true
+  archive_extension:
+    description: "Archive extension (.tar.gz or .zip)"
+    required: true
+  event_name:
+    description: "GitHub event name"
+    required: true
+  experimental_input:
+    description: "Experimental input flag"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version
+      id: version
+      uses: ./.github/actions/get-version
+      with:
+        version_input: ${{ inputs.version_input }}
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare release archives
+      id: prepare
+      uses: ./.github/actions/prepare-release-archives
+      with:
+        version: ${{ steps.version.outputs.version }}
+        platform: ${{ inputs.platform }}
+        binary_name: ${{ inputs.binary_name }}
+        archive_extension: ${{ inputs.archive_extension }}
+
+    - name: Determine release type
+      id: release_type
+      uses: ./.github/actions/determine-release-type
+      with:
+        event_name: ${{ inputs.event_name }}
+        experimental_input: ${{ inputs.experimental_input }}
+        version: ${{ steps.version.outputs.version }}
+
+    - name: Create GitHub Release
+      uses: ./.github/actions/create-release
+      with:
+        tag: ${{ steps.release_type.outputs.tag }}
+        name: ${{ steps.release_type.outputs.name }}
+        files: ${{ steps.prepare.outputs.archive_pattern }}
+        prerelease: ${{ steps.release_type.outputs.prerelease }}

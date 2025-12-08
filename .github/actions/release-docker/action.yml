@@ -1,0 +1,82 @@
+name: Release Docker Image
+description: Complete release workflow for Docker images (get version, determine type, build/push, create release)
+
+inputs:
+  registry:
+    description: "Container registry"
+    required: true
+  image_name:
+    description: "Image name"
+    required: true
+  context:
+    description: "Docker build context path"
+    required: true
+  dockerfile:
+    description: "Path to Dockerfile"
+    required: true
+  version_input:
+    description: "Manual version input (optional)"
+    required: false
+    default: ""
+  event_name:
+    description: "GitHub event name"
+    required: true
+  experimental_input:
+    description: "Experimental input flag"
+    required: false
+    default: "false"
+  release_body:
+    description: "Release body text"
+    required: false
+    default: ""
+
+outputs:
+  version:
+    description: "Version number"
+    value: ${{ steps.version.outputs.version }}
+  docker_tag:
+    description: "Docker tag used"
+    value: ${{ steps.release_type.outputs.docker_tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Docker build environment
+      uses: ./.github/actions/setup-docker-build
+      with:
+        registry: ${{ inputs.registry }}
+        image_name: ${{ inputs.image_name }}
+
+    - name: Get version
+      id: version
+      uses: ./.github/actions/get-version
+      with:
+        version_input: ${{ inputs.version_input }}
+
+    - name: Determine release type
+      id: release_type
+      uses: ./.github/actions/determine-release-type
+      with:
+        event_name: ${{ inputs.event_name }}
+        experimental_input: ${{ inputs.experimental_input }}
+        version: ${{ steps.version.outputs.version }}
+
+    - name: Build and push Docker image
+      uses: ./.github/actions/build-docker-image
+      with:
+        registry: ${{ inputs.registry }}
+        image_name: ${{ inputs.image_name }}
+        docker_tag: ${{ steps.release_type.outputs.docker_tag }}
+        context: ${{ inputs.context }}
+        dockerfile: ${{ inputs.dockerfile }}
+        push: "true"
+
+    - name: Create GitHub Release
+      uses: ./.github/actions/create-release
+      with:
+        tag: ${{ steps.release_type.outputs.tag }}
+        name: ${{ steps.release_type.outputs.name }}
+        body: |
+          ${{ inputs.release_body != '' && inputs.release_body || format('## {0}\n\n### Docker Image\n```bash\ndocker pull {1}/{2}:{3}\n```\n\n---\n*This release was created automatically by the build workflows.*', steps.release_type.outputs.name, inputs.registry, inputs.image_name, steps.release_type.outputs.docker_tag) }}
+        files: ""
+        prerelease: ${{ steps.release_type.outputs.prerelease }}

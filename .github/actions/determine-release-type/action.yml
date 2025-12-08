@@ -1,0 +1,52 @@
+name: Determine Release Type
+description: Determine if this should be an experimental or stable release
+
+inputs:
+  event_name:
+    description: "GitHub event name"
+    required: true
+  experimental_input:
+    description: "Experimental input flag"
+    required: false
+    default: "false"
+  version:
+    description: "Version from Cargo.toml"
+    required: false
+    default: ""
+
+outputs:
+  type:
+    description: "Release type (experimental or stable)"
+    value: ${{ steps.release_type.outputs.type }}
+  tag:
+    description: "Release tag name"
+    value: ${{ steps.release_type.outputs.tag }}
+  name:
+    description: "Release name"
+    value: ${{ steps.release_type.outputs.name }}
+  prerelease:
+    description: "Whether this is a prerelease"
+    value: ${{ steps.release_type.outputs.prerelease }}
+  docker_tag:
+    description: "Docker tag to use"
+    value: ${{ steps.release_type.outputs.docker_tag }}
+
+runs:
+  using: composite
+  steps:
+    - id: release_type
+      shell: bash
+      run: |
+        if [ "${{ inputs.event_name }}" == "push" ] || [ "${{ inputs.experimental_input }}" == "true" ]; then
+          echo "type=experimental" >> $GITHUB_OUTPUT
+          echo "tag=experimental" >> $GITHUB_OUTPUT
+          echo "name=Experimental Release" >> $GITHUB_OUTPUT
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+          echo "docker_tag=experimental" >> $GITHUB_OUTPUT
+        else
+          echo "type=stable" >> $GITHUB_OUTPUT
+          echo "tag=v${{ inputs.version }}" >> $GITHUB_OUTPUT
+          echo "name=Release v${{ inputs.version }}" >> $GITHUB_OUTPUT
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+          echo "docker_tag=${{ inputs.version }}" >> $GITHUB_OUTPUT
+        fi

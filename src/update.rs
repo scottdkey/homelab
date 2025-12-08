@@ -8,13 +8,6 @@ const GITHUB_API_BASE: &str = "https://api.github.com";
 const REPO_OWNER: &str = "scottdkey"; // TODO: Make this configurable
 const REPO_NAME: &str = "homelab";
 
-#[derive(Debug, Clone, Copy)]
-pub enum UpdateChannel {
-    Stable,
-    Alpha,
-    Beta,
-}
-
 #[derive(Debug, Deserialize)]
 struct Release {
     tag_name: String,
@@ -31,7 +24,7 @@ struct Asset {
     _browser_download_url: String,
 }
 
-pub fn check_for_updates(current_version: &str, channel: UpdateChannel) -> Result<Option<String>> {
+pub fn check_for_updates(current_version: &str) -> Result<Option<String>> {
     // Skip update check in development mode
     if env::var("HAL_DEV_MODE").is_ok() || cfg!(debug_assertions) {
         return Ok(None);
@@ -43,26 +36,10 @@ pub fn check_for_updates(current_version: &str, channel: UpdateChannel) -> Resul
         .build()
         .context("Failed to create HTTP client")?;
 
-    let url = match channel {
-        UpdateChannel::Stable => {
-            format!(
-                "{}/repos/{}/{}/releases/latest",
-                GITHUB_API_BASE, REPO_OWNER, REPO_NAME
-            )
-        }
-        UpdateChannel::Alpha => {
-            format!(
-                "{}/repos/{}/{}/releases",
-                GITHUB_API_BASE, REPO_OWNER, REPO_NAME
-            )
-        }
-        UpdateChannel::Beta => {
-            format!(
-                "{}/repos/{}/{}/releases",
-                GITHUB_API_BASE, REPO_OWNER, REPO_NAME
-            )
-        }
-    };
+    let url = format!(
+        "{}/repos/{}/{}/releases/latest",
+        GITHUB_API_BASE, REPO_OWNER, REPO_NAME
+    );
 
     let response = client
         .get(&url)
@@ -74,45 +51,111 @@ pub fn check_for_updates(current_version: &str, channel: UpdateChannel) -> Resul
         return Ok(None);
     }
 
-    match channel {
-        UpdateChannel::Stable => {
-            let release: Release = response.json().context("Failed to parse release JSON")?;
-            // For stable, only check non-prerelease releases
-            if release.prerelease {
-                return Ok(None);
-            }
-            let latest_version = release.tag_name.trim_start_matches('v');
-            let current_version_normalized = current_version.trim_start_matches('v');
-            if latest_version != current_version_normalized
-                && latest_version > current_version_normalized
-            {
-                return Ok(Some(release.tag_name));
-            }
-        }
-        UpdateChannel::Alpha | UpdateChannel::Beta => {
-            // For alpha/beta, get all releases and find the latest matching channel
-            let releases: Vec<Release> =
-                response.json().context("Failed to parse releases JSON")?;
-            let channel_suffix = match channel {
-                UpdateChannel::Alpha => "-alpha.",
-                UpdateChannel::Beta => "-beta.",
-                _ => unreachable!(),
-            };
-
-            // Find the latest pre-release matching the channel
-            let matching_release = releases
-                .iter()
-                .filter(|r| r.prerelease && r.tag_name.contains(channel_suffix))
-                .max_by_key(|r| &r.tag_name);
-
-            if let Some(release) = matching_release {
-                // For alpha/beta, we always consider them "newer" (versionless updates)
-                return Ok(Some(release.tag_name.clone()));
-            }
-        }
+    let release: Release = response.json().context("Failed to parse release JSON")?;
+    // Only check non-prerelease releases
+    if release.prerelease {
+        return Ok(None);
+    }
+    let latest_version = release.tag_name.trim_start_matches('v');
+    let current_version_normalized = current_version.trim_start_matches('v');
+    if latest_version != current_version_normalized && latest_version > current_version_normalized {
+        return Ok(Some(release.tag_name));
     }
 
     Ok(None)
+}
+
+pub fn check_for_experimental_updates(_current_version: &str) -> Result<Option<String>> {
+    // Skip update check in development mode
+    if env::var("HAL_DEV_MODE").is_ok() || cfg!(debug_assertions) {
+        return Ok(None);
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("hal-cli")
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    // Get the experimental release (tagged as "experimental")
+    let url = format!(
+        "{}/repos/{}/{}/releases/tags/experimental",
+        GITHUB_API_BASE, REPO_OWNER, REPO_NAME
+    );
+
+    let response = client
+        .get(&url)
+        .send()
+        .context("Failed to fetch experimental release")?;
+
+    if !response.status().is_success() {
+        // Silently fail - experimental release may not exist yet
+        return Ok(None);
+    }
+
+    let _release: Release = response.json().context("Failed to parse release JSON")?;
+
+    // For experimental, we always consider it "newer" (versionless updates)
+    // Always return it as available since it's versionless and continuously updated
+    Ok(Some("experimental".to_string()))
+}
+
+pub fn get_latest_version() -> Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("hal-cli")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    let url = format!(
+        "{}/repos/{}/{}/releases/latest",
+        GITHUB_API_BASE, REPO_OWNER, REPO_NAME
+    );
+
+    let response = client
+        .get(&url)
+        .send()
+        .context("Failed to fetch releases")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!("Failed to fetch releases: HTTP {}", response.status());
+    }
+
+    let release: Release = response.json().context("Failed to parse release JSON")?;
+    // Only return non-prerelease releases
+    if release.prerelease {
+        anyhow::bail!("No stable release found (only prereleases available)");
+    }
+    Ok(release.tag_name)
+}
+
+pub fn get_latest_experimental_version() -> Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("hal-cli")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .context("Failed to create HTTP client")?;
+
+    // Get the experimental release (tagged as "experimental")
+    let url = format!(
+        "{}/repos/{}/{}/releases/tags/experimental",
+        GITHUB_API_BASE, REPO_OWNER, REPO_NAME
+    );
+
+    let response = client
+        .get(&url)
+        .send()
+        .context("Failed to fetch experimental release")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Failed to fetch experimental release: HTTP {}",
+            response.status()
+        );
+    }
+
+    let _release: Release = response.json().context("Failed to parse release JSON")?;
+    Ok("experimental".to_string())
 }
 
 pub fn prompt_for_update(new_version: &str, current_version: &str) -> Result<bool> {
@@ -157,23 +200,34 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
     };
 
     // Release artifacts are named: hal-{version}-{platform}-{arch}.tar.gz or .zip
+    // For experimental releases, version is "experimental"
     let extension = if cfg!(target_os = "windows") {
         ".zip"
     } else {
         ".tar.gz"
     };
 
-    let asset_name = format!(
-        "hal-{}-{}-{}{}",
-        version.trim_start_matches('v'),
-        platform,
-        arch,
-        extension
-    );
-    let download_url = format!(
-        "https://github.com/{}/{}/releases/download/{}/{}",
-        REPO_OWNER, REPO_NAME, version, asset_name
-    );
+    // For experimental, we need to find the asset by pattern since version is "experimental"
+    let version_clean = version.trim_start_matches('v');
+    let asset_name = if version_clean == "experimental" {
+        // For experimental, we'll search for matching assets
+        format!("hal-*-{}-{}{}", platform, arch, extension)
+    } else {
+        format!("hal-{}-{}-{}{}", version_clean, platform, arch, extension)
+    };
+
+    let download_url = if version_clean == "experimental" {
+        // For experimental, we need to fetch release assets and find matching one
+        format!(
+            "https://github.com/{}/{}/releases/download/{}/{}",
+            REPO_OWNER, REPO_NAME, version, asset_name
+        )
+    } else {
+        format!(
+            "https://github.com/{}/{}/releases/download/{}/{}",
+            REPO_OWNER, REPO_NAME, version, asset_name
+        )
+    };
 
     println!("Downloading from: {}", download_url);
 
@@ -230,10 +284,17 @@ pub fn download_and_install_update(version: &str) -> Result<()> {
                 }
 
                 // Try to find a matching asset
-                let matching_asset = release_info
-                    .assets
-                    .iter()
-                    .find(|asset| asset.name.contains(&platform) && asset.name.contains(&arch));
+                // For experimental, match by platform and arch pattern
+                let matching_asset =
+                    if version.trim_start_matches('v') == "experimental" {
+                        release_info.assets.iter().find(|asset| {
+                            asset.name.contains(&platform) && asset.name.contains(&arch)
+                        })
+                    } else {
+                        release_info.assets.iter().find(|asset| {
+                            asset.name.contains(&platform) && asset.name.contains(&arch)
+                        })
+                    };
 
                 if let Some(asset) = matching_asset {
                     println!("Found matching asset: {}", asset.name);

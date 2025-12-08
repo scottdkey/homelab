@@ -1,0 +1,36 @@
+name: Check Changed Files
+description: Check if source or docker files have changed
+
+inputs:
+  src_paths:
+    description: "Paths to check for source code changes"
+    required: false
+    default: |
+      src/**
+      Cargo.toml
+      Cargo.lock
+  docker_paths:
+    description: "Paths to check for docker changes"
+    required: false
+    default: |
+      openvpn-container/**
+
+outputs:
+  src:
+    description: "Whether source files changed"
+    value: ${{ steps.filter.outputs.src }}
+  docker:
+    description: "Whether docker files changed"
+    value: ${{ steps.filter.outputs.docker }}
+
+runs:
+  using: composite
+  steps:
+    - uses: dorny/paths-filter@v2
+      id: filter
+      with:
+        filters: |
+          src:
+            ${{ inputs.src_paths }}
+          docker:
+            ${{ inputs.docker_paths }}

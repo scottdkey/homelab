@@ -18,10 +18,8 @@ use clap::{Parser, Subcommand};
 use std::env;
 
 fn check_for_updates() {
-    // Check for updates in background (non-blocking) - only stable channel
-    if let Ok(Some(new_version)) =
-        update::check_for_updates(env!("CARGO_PKG_VERSION"), update::UpdateChannel::Stable)
-    {
+    // Check for updates in background (non-blocking)
+    if let Ok(Some(new_version)) = update::check_for_updates(env!("CARGO_PKG_VERSION")) {
         if let Ok(true) = update::prompt_for_update(&new_version, env!("CARGO_PKG_VERSION")) {
             if let Err(e) = update::download_and_install_update(&new_version) {
                 eprintln!("Failed to install update: {}", e);
@@ -105,12 +103,12 @@ enum Commands {
     },
     /// Check for and install updates
     Update {
-        /// Use alpha channel for updates
-        #[arg(long)]
-        alpha: bool,
-        /// Use beta channel for updates
+        /// Use experimental channel for updates (versionless, continuously updated)
         #[arg(long)]
         beta: bool,
+        /// Force download and install the latest version (skips version check)
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -318,17 +316,34 @@ fn main() -> Result<()> {
                 vpn::verify_vpn(&hostname, &config)?;
             }
         },
-        Commands::Update { alpha, beta } => {
+        Commands::Update { beta, force } => {
             let current_version = env!("CARGO_PKG_VERSION");
-            let channel = if alpha {
-                update::UpdateChannel::Alpha
-            } else if beta {
-                update::UpdateChannel::Beta
-            } else {
-                update::UpdateChannel::Stable
-            };
 
-            if let Ok(Some(new_version)) = update::check_for_updates(current_version, channel) {
+            if force {
+                // Force mode: get the latest version and install it regardless of current version
+                if beta {
+                    println!("Force mode: Downloading latest experimental version...");
+                    let latest_version = update::get_latest_experimental_version()?;
+                    println!("Latest experimental version: {}", latest_version);
+                    update::download_and_install_update(&latest_version)?;
+                } else {
+                    println!("Force mode: Downloading latest stable version...");
+                    let latest_version = update::get_latest_version()?;
+                    println!("Latest version: {}", latest_version);
+                    update::download_and_install_update(&latest_version)?;
+                }
+            } else if beta {
+                // Experimental channel: always check for updates (versionless)
+                if let Ok(Some(new_version)) =
+                    update::check_for_experimental_updates(current_version)
+                {
+                    if update::prompt_for_update(&new_version, current_version)? {
+                        update::download_and_install_update(&new_version)?;
+                    }
+                } else {
+                    println!("You're already running the latest experimental version.");
+                }
+            } else if let Ok(Some(new_version)) = update::check_for_updates(current_version) {
                 if update::prompt_for_update(&new_version, current_version)? {
                     update::download_and_install_update(&new_version)?;
                 }

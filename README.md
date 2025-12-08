@@ -8,9 +8,9 @@
 [![Release Date](https://img.shields.io/github/release-date/scottdkey/homelab?label=released&logo=github)](https://github.com/scottdkey/homelab/releases)
 
 ### Docker Image
-[![Docker Build Status](https://img.shields.io/github/actions/workflow/status/scottdkey/homelab/build-docker.yml?label=docker%20build&logo=docker)](https://github.com/scottdkey/homelab/actions/workflows/build-docker.yml)
-[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fscottdkey%2Fvpn-blue?logo=docker)](https://github.com/users/scottdkey/packages/container/package/vpn)
-[![Docker Image Version](https://img.shields.io/github/v/release/scottdkey/homelab?label=docker%20version&logo=docker&sort=semver)](https://github.com/scottdkey/homelab/pkgs/container/vpn)
+[![Docker Build Status](https://img.shields.io/github/actions/workflow/status/scottdkey/homelab/build-pia-vpn.yml?label=PIA%20VPN%20build&logo=docker)](https://github.com/scottdkey/homelab/actions/workflows/build-pia-vpn.yml)
+[![Docker Image](https://img.shields.io/badge/docker-ghcr.io%2Fscottdkey%2Fpia--vpn-blue?logo=docker)](https://github.com/users/scottdkey/packages/container/package/pia-vpn)
+[![Docker Image Version](https://img.shields.io/github/v/release/scottdkey/homelab?label=docker%20version&logo=docker&sort=semver)](https://github.com/scottdkey/homelab/pkgs/container/pia-vpn)
 
 ### Platform Releases
 

@@ -20,11 +20,11 @@ This document describes the CI/CD workflows for the HAL project.
    - macOS (x86_64, aarch64)
    - Runs on `macos-14` runners
 
-3. **build-docker-image**: Builds and pushes the VPN Docker image:
-   - Image: `ghcr.io/{owner}/vpn`
-   - Tags: `latest`, branch name, SHA, and semantic version (if applicable)
+3. **build-pia-vpn**: Builds and pushes the PIA VPN Docker image:
+   - Image: `ghcr.io/{owner}/pia-vpn`
+   - Tags: `latest`, version tag, and experimental (for main branch pushes)
    - Multi-platform: `linux/amd64` and `linux/arm64`
-   - Only pushes on non-PR events
+   - Triggers on changes to `openvpn-container/**` or manual dispatch
 
 4. **build-summary**: Provides a summary of all build jobs
 
@@ -56,10 +56,13 @@ The Docker image is automatically pushed to GitHub Container Registry:
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/<your-username>/vpn:latest
+docker pull ghcr.io/<your-username>/pia-vpn:latest
 
 # Or use a specific version
-docker pull ghcr.io/<your-username>/vpn:v1.0.0
+docker pull ghcr.io/<your-username>/pia-vpn:v1.0.0
+
+# Or use experimental (continuously updated from main branch)
+docker pull ghcr.io/<your-username>/pia-vpn:experimental
 ```
 
 Make sure you're authenticated with GitHub Container Registry:

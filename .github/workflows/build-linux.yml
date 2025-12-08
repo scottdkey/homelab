@@ -1,6 +1,9 @@
 name: Build and Release Linux
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       build:
@@ -17,6 +20,11 @@ on:
         description: "Version to release (defaults to Cargo.toml version)"
         required: false
         type: string
+      experimental:
+        description: "Create experimental release"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -26,10 +34,24 @@ env:
   RUST_VERSION: stable
 
 jobs:
+  check-changes:
+    name: Check Changed Files
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    outputs:
+      src: ${{ steps.check.outputs.src }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/check-changes
+        id: check
+
   build:
     name: Build Linux CLI
     runs-on: ubuntu-latest
-    if: github.event.inputs.build == 'true'
+    if: |
+      (github.event_name == 'push' && (needs.check-changes.outputs.src == 'true' || always())) ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.build == 'true')
+    needs: check-changes
     strategy:
       matrix:
         target:
@@ -39,233 +61,47 @@ jobs:
           - aarch64-unknown-linux-musl
           - riscv64gc-unknown-linux-gnu
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust build environment
+        uses: ./.github/actions/setup-rust-build
         with:
-          targets: ${{ matrix.target }}
+          target: ${{ matrix.target }}
 
-      - name: Cache Cargo dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ runner.tool_cache }}/cargo
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.target }}-
-            ${{ runner.os }}-cargo-
-
-      - name: Install build dependencies
+      - name: Install Linux build dependencies
         if: startsWith(matrix.target, 'x86_64-unknown-linux') || startsWith(matrix.target, 'aarch64-unknown-linux') || startsWith(matrix.target, 'riscv64gc-unknown-linux')
-        run: |
-          sudo apt-get update
-          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-musl" ]]; then
-            sudo apt-get install -y musl-tools musl-dev
-          elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            # Install dependencies for aarch64 musl cross-compilation
-            sudo apt-get install -y \
-              musl-tools \
-              musl-dev \
-              gcc-aarch64-linux-gnu \
-              g++-aarch64-linux-gnu \
-              build-essential \
-              wget \
-              xz-utils \
-              file
-            # Download and install pre-built musl-cross toolchain for aarch64
-            MUSL_CROSS_DIR="$HOME/musl-cross"
-            mkdir -p "$MUSL_CROSS_DIR/bin"
-            cd "$MUSL_CROSS_DIR"
-            
-            # Try to download a pre-built aarch64 musl toolchain from musl.cc
-            echo "Downloading aarch64-linux-musl cross-compiler..."
-            TOOLCHAIN_URL="https://musl.cc/aarch64-linux-musl-cross.tgz"
-            
-            if wget -q --spider "$TOOLCHAIN_URL" 2>/dev/null; then
-              echo "Found pre-built toolchain, downloading..."
-              wget -q "$TOOLCHAIN_URL" -O aarch64-musl-cross.tgz
-              tar -xzf aarch64-musl-cross.tgz --strip-components=1
-              export PATH="$MUSL_CROSS_DIR/bin:$PATH"
-              echo "PATH=$MUSL_CROSS_DIR/bin:$PATH" >> $GITHUB_ENV
-            else
-              echo "Pre-built toolchain not available from musl.cc"
-              # Try alternative URL pattern
-              TOOLCHAIN_URL_ALT="https://more.musl.cc/10/x86_64-linux-musl/aarch64-linux-musl-cross.tgz"
-              if wget -q --spider "$TOOLCHAIN_URL_ALT" 2>/dev/null; then
-                echo "Found alternative toolchain, downloading..."
-                wget -q "$TOOLCHAIN_URL_ALT" -O aarch64-musl-cross.tgz
-                tar -xzf aarch64-musl-cross.tgz --strip-components=1
-                export PATH="$MUSL_CROSS_DIR/bin:$PATH"
-                echo "PATH=$MUSL_CROSS_DIR/bin:$PATH" >> $GITHUB_ENV
-              else
-                echo "⚠️  No pre-built toolchain available, skipping aarch64-unknown-linux-musl target"
-                echo "SKIP_TARGET=true" >> $GITHUB_ENV
-              fi
-            fi
-            
-            # Set up environment variables for aarch64 musl if toolchain is available
-            if [ -f "$MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc" ]; then
-              echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-              echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-              echo "RUSTFLAGS=-C linker=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-            fi
-          elif [[ "${{ matrix.target }}" == "aarch64-unknown-linux-gnu" ]]; then
-            sudo apt-get install -y \
-              gcc-aarch64-linux-gnu \
-              g++-aarch64-linux-gnu
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-            echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-            echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
-          elif [[ "${{ matrix.target }}" == "riscv64gc-unknown-linux-gnu" ]]; then
-            sudo apt-get install -y \
-              gcc-riscv64-linux-gnu \
-              g++-riscv64-linux-gnu
-            echo "CARGO_TARGET_RISCV64GC_UNKNOWN_LINUX_GNU_LINKER=riscv64-linux-gnu-gcc" >> $GITHUB_ENV
-            echo "CC_riscv64gc_unknown_linux_gnu=riscv64-linux-gnu-gcc" >> $GITHUB_ENV
-            echo "CXX_riscv64gc_unknown_linux_gnu=riscv64-linux-gnu-g++" >> $GITHUB_ENV
-          fi
+        id: deps
+        uses: ./.github/actions/install-linux-deps
+        with:
+          target: ${{ matrix.target }}
 
       - name: Build Rust CLI
-        run: |
-          if [[ "${{ matrix.target }}" == "aarch64-unknown-linux-musl" ]]; then
-            if [ "$SKIP_TARGET" == "true" ]; then
-              echo "⚠️  Skipping aarch64-unknown-linux-musl - toolchain not available"
-              exit 0
-            elif command -v aarch64-linux-musl-gcc &> /dev/null; then
-              echo "Using aarch64-linux-musl-gcc for build"
-              cargo build --release --target ${{ matrix.target }}
-            else
-              echo "⚠️  aarch64-linux-musl-gcc not found, skipping build"
-              exit 0
-            fi
-          else
-            cargo build --release --target ${{ matrix.target }}
-          fi
+        uses: ./.github/actions/build-rust-cli
+        with:
+          target: ${{ matrix.target }}
+          skip_target: ${{ steps.deps.outputs.skip_target }}
 
       - name: Upload artifact
-        if: |
-          matrix.target != 'aarch64-unknown-linux-musl' ||
-          (matrix.target == 'aarch64-unknown-linux-musl' && env.SKIP_TARGET != 'true')
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload-rust-artifact
         with:
-          name: hal-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/hal
-          retention-days: 90
-          if-no-files-found: error
+          target: ${{ matrix.target }}
+          binary_path: target/${{ matrix.target }}/release/hal
+          skip_target: ${{ steps.deps.outputs.skip_target }}
 
   release:
     name: Release Linux CLI
     runs-on: ubuntu-latest
-    needs: build
+    needs: [check-changes, build]
     if: |
-      github.event.inputs.release == 'true' &&
-      (needs.build.result == 'success' || needs.build.result == 'skipped')
+      (github.event_name == 'push' && needs.build.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped'))
     permissions:
       contents: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Get version
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          else
-            VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-          fi
-          # Remove 'v' prefix if present
-          VERSION="${VERSION#v}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Release version: $VERSION"
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - name: Release CLI
+        uses: ./.github/actions/release-cli
         with:
-          path: artifacts
-
-      - name: Prepare release archives
-        run: |
-          mkdir -p release
-          VERSION="${{ steps.version.outputs.version }}"
-
-          for artifact_dir in artifacts/hal-*/; do
-            if [ -d "$artifact_dir" ]; then
-              TARGET=$(basename "$artifact_dir" | sed 's/hal-//')
-              echo "Processing: $TARGET"
-              
-              # Extract architecture from target
-              ARCH_RAW=$(echo "$TARGET" | cut -d'-' -f1)
-              
-              # Convert architecture names
-              case "$ARCH_RAW" in
-                x86_64)
-                  ARCH="amd64"
-                  ;;
-                aarch64)
-                  ARCH="arm64"
-                  ;;
-                riscv64gc)
-                  ARCH="riscv64"
-                  ;;
-                *)
-                  ARCH="$ARCH_RAW"
-                  ;;
-              esac
-              
-              if [ -f "$artifact_dir/hal" ]; then
-                BINARY_NAME="hal"
-                case "$TARGET" in
-                  *linux-gnu*)
-                    OS="linux"
-                    EXT=""
-                    ;;
-                  *linux-musl*)
-                    OS="linux"
-                    EXT="musl"
-                    ;;
-                  *)
-                    echo "Unknown target: $TARGET"
-                    continue
-                    ;;
-                esac
-                
-                mkdir -p "release/${OS}-${ARCH}${EXT:+-$EXT}"
-                cp "$artifact_dir/$BINARY_NAME" "release/${OS}-${ARCH}${EXT:+-$EXT}/$BINARY_NAME"
-                chmod +x "release/${OS}-${ARCH}${EXT:+-$EXT}/$BINARY_NAME"
-                
-                if [ -n "$EXT" ]; then
-                  ARCHIVE_NAME="hal-${VERSION}-${OS}-${ARCH}-${EXT}.tar.gz"
-                else
-                  ARCHIVE_NAME="hal-${VERSION}-${OS}-${ARCH}.tar.gz"
-                fi
-                tar -czf "$ARCHIVE_NAME" -C "release/${OS}-${ARCH}${EXT:+-$EXT}" "$BINARY_NAME"
-                echo "Created: $ARCHIVE_NAME"
-              fi
-            fi
-          done
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: Release v${{ steps.version.outputs.version }}
-          body: |
-            ## Release v${{ steps.version.outputs.version }}
-
-            ### Downloads
-            - See assets below for platform-specific binaries
-
-            ---
-            *This release was created automatically by the build workflows.*
-          files: |
-            hal-*-linux-*.tar.gz
-          draft: false
-          prerelease: false
+          version_input: ${{ github.event.inputs.version }}
+          platform: linux
+          binary_name: hal
+          archive_extension: .tar.gz
+          event_name: ${{ github.event_name }}
+          experimental_input: ${{ github.event.inputs.experimental }}

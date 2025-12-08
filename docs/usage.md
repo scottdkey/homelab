@@ -90,46 +90,49 @@ hal vpn deploy
 
 See the [VPN documentation](vpn.md) for more details.
 
-## Update Channels
+## Updates
 
-HAL supports multiple update channels: stable, alpha, and beta.
+HAL can check for and install updates automatically.
 
-### Stable Channel (Default)
+### Check for Updates
 
-The stable channel receives production releases. This is the default behavior:
+Check for updates and install if available:
 
 ```bash
 hal update
 ```
 
-### Alpha Channel
+This will:
+- Check for a newer version on GitHub releases
+- Prompt you to download and install if an update is available
+- Install the update automatically if you confirm
 
-The alpha channel receives pre-release builds from the `alpha` branch. These are continuously updated and may be unstable:
+### Experimental Channel
 
-```bash
-hal update --alpha
-```
-
-When you first use `--alpha`, you'll be prompted to confirm switching to the alpha channel. Alpha releases are versionless (continuously updated) and allow you to test the latest features before they reach beta or stable.
-
-**Note:** Alpha releases may contain bugs and breaking changes. Use at your own risk.
-
-### Beta Channel
-
-The beta channel receives pre-release builds from the `beta` branch. These are more stable than alpha but still pre-release:
+Use the experimental channel to get the latest continuously-updated builds:
 
 ```bash
 hal update --beta
 ```
 
-When you first use `--beta`, you'll be prompted to confirm switching to the beta channel. Beta releases are versionless (continuously updated) and provide early access to upcoming stable releases.
+This will:
+- Check for updates from the experimental release (versionless, continuously updated)
+- Always considers experimental releases as "newer" since they're versionless
+- Useful for testing the latest code from the main branch
 
-**Note:** Beta releases may contain bugs. Use with caution in production environments.
+**Note:** Experimental releases are automatically created when code is merged to main and may be unstable.
 
-### Switching Channels
+### Force Update
 
-- Use `hal update` (without flags) to check for stable releases
-- Use `hal update --alpha` to check for alpha releases
-- Use `hal update --beta` to check for beta releases
+Force download and install the latest version (useful for development):
 
-The update command will automatically download and install the latest version from the selected channel.
+```bash
+hal update --force
+hal update --force --beta
+```
+
+This will:
+- Skip the version check
+- Download and install the latest release regardless of your current version
+- Use `--beta` flag to force install from experimental channel
+- Useful when you want to reinstall the latest version during development

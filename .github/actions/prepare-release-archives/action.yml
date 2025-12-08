@@ -1,0 +1,125 @@
+name: Prepare Release Archives
+description: Prepare release archives from build artifacts
+
+inputs:
+  version:
+    description: "Version for archive naming"
+    required: true
+  platform:
+    description: "Platform (linux, darwin, windows)"
+    required: true
+  binary_name:
+    description: "Binary name (hal or hal.exe)"
+    required: true
+    default: "hal"
+  archive_extension:
+    description: "Archive extension (.tar.gz or .zip)"
+    required: true
+    default: ".tar.gz"
+
+outputs:
+  archive_pattern:
+    description: "Pattern to match created archives"
+    value: ${{ steps.prepare.outputs.archive_pattern }}
+
+runs:
+  using: composite
+  steps:
+    - id: prepare
+      shell: bash
+      run: |
+        mkdir -p release
+        VERSION="${{ inputs.version }}"
+        PLATFORM="${{ inputs.platform }}"
+        BINARY_NAME="${{ inputs.binary_name }}"
+        EXT="${{ inputs.archive_extension }}"
+
+        # For experimental releases, use a timestamp-based version for archive naming
+        if [ "$VERSION" == "experimental" ]; then
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          ARCHIVE_VERSION="$TIMESTAMP"
+        else
+          ARCHIVE_VERSION="$VERSION"
+        fi
+
+        for artifact_dir in artifacts/hal-*/; do
+          if [ -d "$artifact_dir" ]; then
+            TARGET=$(basename "$artifact_dir" | sed 's/hal-//')
+            echo "Processing: $TARGET"
+            
+            # Extract architecture from target
+            ARCH_RAW=$(echo "$TARGET" | cut -d'-' -f1)
+            
+            # Convert architecture names
+            case "$ARCH_RAW" in
+              x86_64)
+                ARCH="amd64"
+                ;;
+              aarch64)
+                ARCH="arm64"
+                ;;
+              riscv64gc)
+                ARCH="riscv64"
+                ;;
+              *)
+                ARCH="$ARCH_RAW"
+                ;;
+            esac
+            
+            if [ -f "$artifact_dir/$BINARY_NAME" ]; then
+              # Platform-specific handling
+              if [ "$PLATFORM" == "linux" ]; then
+                case "$TARGET" in
+                  *linux-gnu*)
+                    OS="linux"
+                    EXT_SUFFIX=""
+                    ;;
+                  *linux-musl*)
+                    OS="linux"
+                    EXT_SUFFIX="musl"
+                    ;;
+                  *)
+                    echo "Unknown target: $TARGET"
+                    continue
+                    ;;
+                esac
+                
+                mkdir -p "release/${OS}-${ARCH}${EXT_SUFFIX:+-$EXT_SUFFIX}"
+                cp "$artifact_dir/$BINARY_NAME" "release/${OS}-${ARCH}${EXT_SUFFIX:+-$EXT_SUFFIX}/$BINARY_NAME"
+                chmod +x "release/${OS}-${ARCH}${EXT_SUFFIX:+-$EXT_SUFFIX}/$BINARY_NAME"
+                
+                if [ -n "$EXT_SUFFIX" ]; then
+                  ARCHIVE_NAME="hal-${ARCHIVE_VERSION}-${OS}-${ARCH}-${EXT_SUFFIX}.tar.gz"
+                else
+                  ARCHIVE_NAME="hal-${ARCHIVE_VERSION}-${OS}-${ARCH}.tar.gz"
+                fi
+                tar -czf "$ARCHIVE_NAME" -C "release/${OS}-${ARCH}${EXT_SUFFIX:+-$EXT_SUFFIX}" "$BINARY_NAME"
+              elif [ "$PLATFORM" == "darwin" ]; then
+                OS="darwin"
+                mkdir -p "release/${OS}-${ARCH}"
+                cp "$artifact_dir/$BINARY_NAME" "release/${OS}-${ARCH}/$BINARY_NAME"
+                chmod +x "release/${OS}-${ARCH}/$BINARY_NAME"
+                ARCHIVE_NAME="hal-${ARCHIVE_VERSION}-${OS}-${ARCH}.tar.gz"
+                tar -czf "$ARCHIVE_NAME" -C "release/${OS}-${ARCH}" "$BINARY_NAME"
+              elif [ "$PLATFORM" == "windows" ]; then
+                OS="windows"
+                mkdir -p "release/${OS}-${ARCH}"
+                cp "$artifact_dir/$BINARY_NAME" "release/${OS}-${ARCH}/$BINARY_NAME"
+                ARCHIVE_NAME="hal-${ARCHIVE_VERSION}-${OS}-${ARCH}.zip"
+                cd "release/${OS}-${ARCH}"
+                zip -r "../../$ARCHIVE_NAME" "$BINARY_NAME"
+                cd ../..
+              fi
+              echo "Created: $ARCHIVE_NAME"
+            fi
+          fi
+        done
+
+        # Set output pattern for file matching
+        if [ "$PLATFORM" == "linux" ]; then
+          echo "archive_pattern=hal-*-linux-*.tar.gz" >> $GITHUB_OUTPUT
+        elif [ "$PLATFORM" == "darwin" ]; then
+          echo "archive_pattern=hal-*-darwin-*.tar.gz" >> $GITHUB_OUTPUT
+        elif [ "$PLATFORM" == "windows" ]; then
+          echo "archive_pattern=hal-*-windows-*.zip" >> $GITHUB_OUTPUT
+        fi
