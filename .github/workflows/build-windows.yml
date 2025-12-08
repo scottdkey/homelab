@@ -159,7 +159,7 @@ jobs:
     needs: [check-changes, build]
     if: |
       (github.event_name == 'push' && needs.check-changes.outputs.src == 'true' && needs.build.result != 'failure') ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true')
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.release == 'true' && (needs.build.result == 'success' || needs.build.result == 'skipped'))
     permissions:
       contents: write
     steps:
@@ -169,12 +169,17 @@ jobs:
       - name: Determine experimental flag
         id: exp_flag
         run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Experimental input: ${{ github.event.inputs.experimental }}"
           if [ "${{ github.event_name }}" == "push" ]; then
             echo "value=true" >> $GITHUB_OUTPUT
+            echo "Push event - setting experimental to true"
           elif [ "${{ github.event.inputs.experimental }}" == "true" ]; then
             echo "value=true" >> $GITHUB_OUTPUT
+            echo "Experimental input is true - setting experimental to true"
           else
             echo "value=false" >> $GITHUB_OUTPUT
+            echo "Experimental input is false or not set - setting experimental to false"
           fi
 
       - name: Release CLI

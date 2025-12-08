@@ -59,7 +59,7 @@ runs:
             echo "Experimental flag set to true - creating experimental release"
           else
             IS_EXPERIMENTAL=false
-            echo "Experimental flag not set or false - creating stable release"
+            echo "Experimental flag not set or false (value: '$EXP_INPUT') - creating stable release"
           fi
         fi
 
