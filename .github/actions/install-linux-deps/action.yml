@@ -23,7 +23,8 @@ runs:
         if [[ "${{ inputs.target }}" == "x86_64-unknown-linux-musl" ]]; then
           sudo apt-get install -y musl-tools musl-dev
           echo "skip_target=false" >> $GITHUB_OUTPUT
-        elif [[ "${{ inputs.target }}" == "aarch64-unknown-linux-musl" ]]; then
+        # Temporarily disabled - toolchain download issues
+        # elif [[ "${{ inputs.target }}" == "aarch64-unknown-linux-musl" ]]; then
           # Install dependencies for aarch64 musl cross-compilation
           sudo apt-get install -y \
             musl-tools \
