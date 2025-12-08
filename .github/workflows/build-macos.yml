@@ -102,4 +102,4 @@ jobs:
           binary_name: hal
           archive_extension: .tar.gz
           event_name: ${{ github.event_name }}
-          experimental_input: ${{ github.event.inputs.experimental }}
+          experimental_input: ${{ github.event_name == 'push' && 'true' || github.event.inputs.experimental || 'false' }}
