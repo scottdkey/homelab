@@ -25,73 +25,73 @@ runs:
           echo "skip_target=false" >> $GITHUB_OUTPUT
         # Temporarily disabled - toolchain download issues
         # elif [[ "${{ inputs.target }}" == "aarch64-unknown-linux-musl" ]]; then
-          # Install dependencies for aarch64 musl cross-compilation
-          sudo apt-get install -y \
-            musl-tools \
-            musl-dev \
-            gcc-aarch64-linux-gnu \
-            g++-aarch64-linux-gnu \
-            build-essential \
-            wget \
-            xz-utils \
-            file
-          
-          # Download and install pre-built musl-cross toolchain for aarch64
-          MUSL_CROSS_DIR="$HOME/musl-cross"
-          mkdir -p "$MUSL_CROSS_DIR/bin"
-          cd "$MUSL_CROSS_DIR"
-          
-          # Export MUSL_CROSS_DIR so it's available in subsequent steps
-          echo "MUSL_CROSS_DIR=$MUSL_CROSS_DIR" >> $GITHUB_ENV
-          
-          # Try to download a pre-built aarch64 musl toolchain from musl.cc
-          echo "Downloading aarch64-linux-musl cross-compiler..."
-          
-          TOOLCHAIN_FOUND=false
-          
-          # Try multiple URL patterns for musl.cc toolchains
-          TOOLCHAIN_URLS=(
-            "https://musl.cc/aarch64-linux-musl-cross.tgz"
-            "https://more.musl.cc/10/x86_64-linux-musl/aarch64-linux-musl-cross.tgz"
-            "https://test.musl.cc/20240904_zx2c4/aarch64-linux-musl-cross.tgz"
-          )
-          
-          for TOOLCHAIN_URL in "${TOOLCHAIN_URLS[@]}"; do
-            echo "Trying: $TOOLCHAIN_URL"
-            if wget -q --spider "$TOOLCHAIN_URL" 2>/dev/null; then
-              echo "Found toolchain, downloading..."
-              if wget -q "$TOOLCHAIN_URL" -O aarch64-musl-cross.tgz && tar -xzf aarch64-musl-cross.tgz --strip-components=1; then
-                TOOLCHAIN_FOUND=true
-                echo "✓ Toolchain downloaded and extracted successfully from $TOOLCHAIN_URL"
-                break
-              else
-                echo "✗ Failed to download or extract toolchain from $TOOLCHAIN_URL"
-                rm -f aarch64-musl-cross.tgz
-              fi
-            else
-              echo "Toolchain not available at $TOOLCHAIN_URL"
-            fi
-          done
-          
-          if [ "$TOOLCHAIN_FOUND" != "true" ]; then
-            echo "⚠️  No pre-built toolchain available from musl.cc sources"
-            echo "Note: aarch64-unknown-linux-musl target will be skipped"
-          fi
-          
-          # Set up environment variables for aarch64 musl if toolchain is available
-          if [ "$TOOLCHAIN_FOUND" == "true" ] && [ -f "$MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc" ]; then
-            echo "✓ Toolchain verified: $MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc exists"
-            echo "PATH=$MUSL_CROSS_DIR/bin:$PATH" >> $GITHUB_ENV
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-            echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-            echo "RUSTFLAGS=-C linker=aarch64-linux-musl-gcc" >> $GITHUB_ENV
-            echo "skip_target=false" >> $GITHUB_OUTPUT
-            echo "✓ Toolchain configured successfully - ready for build"
-          else
-            echo "⚠️  Toolchain not available, skipping aarch64-unknown-linux-musl target"
-            echo "SKIP_TARGET=true" >> $GITHUB_ENV
-            echo "skip_target=true" >> $GITHUB_OUTPUT
-          fi
+        #   # Install dependencies for aarch64 musl cross-compilation
+        #   sudo apt-get install -y \
+        #     musl-tools \
+        #     musl-dev \
+        #     gcc-aarch64-linux-gnu \
+        #     g++-aarch64-linux-gnu \
+        #     build-essential \
+        #     wget \
+        #     xz-utils \
+        #     file
+        #   
+        #   # Download and install pre-built musl-cross toolchain for aarch64
+        #   MUSL_CROSS_DIR="$HOME/musl-cross"
+        #   mkdir -p "$MUSL_CROSS_DIR/bin"
+        #   cd "$MUSL_CROSS_DIR"
+        #   
+        #   # Export MUSL_CROSS_DIR so it's available in subsequent steps
+        #   echo "MUSL_CROSS_DIR=$MUSL_CROSS_DIR" >> $GITHUB_ENV
+        #   
+        #   # Try to download a pre-built aarch64 musl toolchain from musl.cc
+        #   echo "Downloading aarch64-linux-musl cross-compiler..."
+        #   
+        #   TOOLCHAIN_FOUND=false
+        #   
+        #   # Try multiple URL patterns for musl.cc toolchains
+        #   TOOLCHAIN_URLS=(
+        #     "https://musl.cc/aarch64-linux-musl-cross.tgz"
+        #     "https://more.musl.cc/10/x86_64-linux-musl/aarch64-linux-musl-cross.tgz"
+        #     "https://test.musl.cc/20240904_zx2c4/aarch64-linux-musl-cross.tgz"
+        #   )
+        #   
+        #   for TOOLCHAIN_URL in "${TOOLCHAIN_URLS[@]}"; do
+        #     echo "Trying: $TOOLCHAIN_URL"
+        #     if wget -q --spider "$TOOLCHAIN_URL" 2>/dev/null; then
+        #       echo "Found toolchain, downloading..."
+        #       if wget -q "$TOOLCHAIN_URL" -O aarch64-musl-cross.tgz && tar -xzf aarch64-musl-cross.tgz --strip-components=1; then
+        #         TOOLCHAIN_FOUND=true
+        #         echo "✓ Toolchain downloaded and extracted successfully from $TOOLCHAIN_URL"
+        #         break
+        #       else
+        #         echo "✗ Failed to download or extract toolchain from $TOOLCHAIN_URL"
+        #         rm -f aarch64-musl-cross.tgz
+        #       fi
+        #     else
+        #       echo "Toolchain not available at $TOOLCHAIN_URL"
+        #     fi
+        #   done
+        #   
+        #   if [ "$TOOLCHAIN_FOUND" != "true" ]; then
+        #     echo "⚠️  No pre-built toolchain available from musl.cc sources"
+        #     echo "Note: aarch64-unknown-linux-musl target will be skipped"
+        #   fi
+        #   
+        #   # Set up environment variables for aarch64 musl if toolchain is available
+        #   if [ "$TOOLCHAIN_FOUND" == "true" ] && [ -f "$MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc" ]; then
+        #     echo "✓ Toolchain verified: $MUSL_CROSS_DIR/bin/aarch64-linux-musl-gcc exists"
+        #     echo "PATH=$MUSL_CROSS_DIR/bin:$PATH" >> $GITHUB_ENV
+        #     echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc" >> $GITHUB_ENV
+        #     echo "CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc" >> $GITHUB_ENV
+        #     echo "RUSTFLAGS=-C linker=aarch64-linux-musl-gcc" >> $GITHUB_ENV
+        #     echo "skip_target=false" >> $GITHUB_OUTPUT
+        #     echo "✓ Toolchain configured successfully - ready for build"
+        #   else
+        #     echo "⚠️  Toolchain not available, skipping aarch64-unknown-linux-musl target"
+        #     echo "SKIP_TARGET=true" >> $GITHUB_ENV
+        #     echo "skip_target=true" >> $GITHUB_OUTPUT
+        #   fi
         elif [[ "${{ inputs.target }}" == "aarch64-unknown-linux-gnu" ]]; then
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu \
