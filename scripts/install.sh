@@ -85,18 +85,18 @@ download_binary() {
     fi
     
     if [ -z "$download_url" ]; then
-        echo -e "${RED}Error: Could not find download URL for platform ${platform}${NC}"
-        echo "Available releases: https://github.com/${GITHUB_REPO}/releases"
+        echo -e "${RED}Error: Could not find download URL for platform ${platform}${NC}" >&2
+        echo "Available releases: https://github.com/${GITHUB_REPO}/releases" >&2
         exit 1
     fi
     
-    echo -e "${GREEN}Downloading from: ${download_url}${NC}"
+    echo -e "${GREEN}Downloading from: ${download_url}${NC}" >&2
     
     local temp_dir=$(mktemp -d)
     local archive_path="${temp_dir}/hal.tar.gz"
     
     curl -L -o "$archive_path" "$download_url" || {
-        echo -e "${RED}Error: Failed to download binary${NC}"
+        echo -e "${RED}Error: Failed to download binary${NC}" >&2
         rm -rf "$temp_dir"
         exit 1
     }
