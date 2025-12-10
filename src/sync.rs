@@ -6,7 +6,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use std::path::PathBuf;
 
-/// Sync data to/from a remote hal installation
+/// Sync data to/from a remote halvor installation
 pub fn sync_data(hostname: &str, pull: bool, config: &EnvConfig) -> Result<()> {
     // Get target host info
     let host_config = config
@@ -41,9 +41,9 @@ pub fn sync_data(hostname: &str, pull: bool, config: &EnvConfig) -> Result<()> {
     Ok(())
 }
 
-/// Push data to remote hal installation
+/// Push data to remote halvor installation
 fn push_to_remote(ssh: &SshConnection, _hostname: &str) -> Result<()> {
-    println!("Pushing data to remote hal installation...");
+    println!("Pushing data to remote halvor installation...");
 
     // Export encrypted data
     let encrypted_data = db::export_encrypted_data()?;
@@ -52,7 +52,7 @@ fn push_to_remote(ssh: &SshConnection, _hostname: &str) -> Result<()> {
         encrypted_data.len()
     );
 
-    // Get remote hal database path
+    // Get remote halvor database path
     let remote_db_path = get_remote_db_path(ssh)?;
     println!("  Remote database: {}", remote_db_path);
 
@@ -77,7 +77,7 @@ fn push_to_remote(ssh: &SshConnection, _hostname: &str) -> Result<()> {
         fi
         
         # Decode and import encrypted data
-        echo '{}' | base64 -d > {} && hal db import {} && rm -f {} || {{
+        echo '{}' | base64 -d > {} && halvor db import {} && rm -f {} || {{
             echo "Failed to import encrypted data"
             exit 1
         }}
@@ -100,22 +100,22 @@ fn push_to_remote(ssh: &SshConnection, _hostname: &str) -> Result<()> {
     Ok(())
 }
 
-/// Pull data from remote hal installation
+/// Pull data from remote halvor installation
 fn pull_from_remote(ssh: &SshConnection, _hostname: &str) -> Result<()> {
-    println!("Pulling data from remote hal installation...");
+    println!("Pulling data from remote halvor installation...");
 
-    // Get remote hal database path
+    // Get remote halvor database path
     let remote_db_path = get_remote_db_path(ssh)?;
     println!("  Remote database: {}", remote_db_path);
 
     // Export from remote
     let export_script = r#"
-        if ! command -v hal >/dev/null 2>&1; then
-            echo "Error: hal not found on remote host"
+        if ! command -v halvor >/dev/null 2>&1; then
+            echo "Error: halvor not found on remote host"
             exit 1
         fi
         
-        hal db export
+        halvor db export
     "#;
 
     let output = ssh
@@ -147,13 +147,13 @@ fn pull_from_remote(ssh: &SshConnection, _hostname: &str) -> Result<()> {
     Ok(())
 }
 
-/// Get the remote hal database path
+/// Get the remote halvor database path
 fn get_remote_db_path(ssh: &SshConnection) -> Result<String> {
     let script = r#"
-        if command -v hal >/dev/null 2>&1; then
-            hal config db-path 2>/dev/null || echo "$HOME/.config/hal/hal.db"
+        if command -v halvor >/dev/null 2>&1; then
+            halvor config db-path 2>/dev/null || echo "$HOME/.config/halvor/halvor.db"
         else
-            echo "$HOME/.config/hal/hal.db"
+            echo "$HOME/.config/halvor/halvor.db"
         fi
     "#;
 

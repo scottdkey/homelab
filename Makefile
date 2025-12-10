@@ -18,41 +18,41 @@ help:
 	@echo "  make build-all     - Build all CLI targets"
 	@echo ""
 	@echo "Other targets:"
-	@echo "  make install        - Install hal globally"
-	@echo "  make uninstall      - Remove hal from the system"
+	@echo "  make install        - Install halvor globally"
+	@echo "  make uninstall      - Remove halvor from the system"
 	@echo "  make dev            - Start development mode (watch)"
 	@echo "  make clean          - Clean build artifacts"
 
-# Install hal globally
+# Install halvor globally
 install:
 	cargo install --path . --force
 
-# Uninstall hal from the system
+# Uninstall halvor from the system
 uninstall:
-	@echo "Uninstalling hal..."
+	@echo "Uninstalling halvor..."
 	@BINARY_FOUND=0; \
 	BACKUP_FOUND=0; \
-	if [ -f "$$HOME/.cargo/bin/hal" ]; then \
-		echo "Removing $$HOME/.cargo/bin/hal"; \
-		rm -f "$$HOME/.cargo/bin/hal"; \
+	if [ -f "$$HOME/.cargo/bin/halvor" ]; then \
+		echo "Removing $$HOME/.cargo/bin/halvor"; \
+		rm -f "$$HOME/.cargo/bin/halvor"; \
 		BINARY_FOUND=1; \
 	fi; \
-	if [ -f "/usr/local/bin/hal" ]; then \
-		echo "Removing /usr/local/bin/hal (requires sudo)"; \
-		sudo rm -f /usr/local/bin/hal; \
+	if [ -f "/usr/local/bin/halvor" ]; then \
+		echo "Removing /usr/local/bin/halvor (requires sudo)"; \
+		sudo rm -f /usr/local/bin/halvor; \
 		BINARY_FOUND=1; \
 	fi; \
-	if [ -f "$$HOME/.local/bin/hal" ]; then \
-		echo "Removing $$HOME/.local/bin/hal"; \
-		rm -f "$$HOME/.local/bin/hal"; \
+	if [ -f "$$HOME/.local/bin/halvor" ]; then \
+		echo "Removing $$HOME/.local/bin/halvor"; \
+		rm -f "$$HOME/.local/bin/halvor"; \
 		BINARY_FOUND=1; \
 	fi; \
-	if [ -f "/usr/bin/hal" ]; then \
-		echo "Removing /usr/bin/hal (requires sudo)"; \
-		sudo rm -f /usr/bin/hal; \
+	if [ -f "/usr/bin/halvor" ]; then \
+		echo "Removing /usr/bin/halvor (requires sudo)"; \
+		sudo rm -f /usr/bin/halvor; \
 		BINARY_FOUND=1; \
 	fi; \
-	for backup in "$$HOME/.cargo/bin/hal"*.bak "/usr/local/bin/hal"*.bak "$$HOME/.local/bin/hal"*.bak "/usr/bin/hal"*.bak; do \
+	for backup in "$$HOME/.cargo/bin/halvor"*.bak "/usr/local/bin/halvor"*.bak "$$HOME/.local/bin/halvor"*.bak "/usr/bin/halvor"*.bak; do \
 		if [ -f "$$backup" ]; then \
 			echo "Removing backup file: $$backup"; \
 			rm -f "$$backup"; \
@@ -60,13 +60,13 @@ uninstall:
 		fi; \
 	done; \
 	if [ $$BINARY_FOUND -eq 0 ] && [ $$BACKUP_FOUND -eq 0 ]; then \
-		echo "No hal binary or backup files found to remove."; \
+		echo "No halvor binary or backup files found to remove."; \
 		echo "Checked locations:"; \
-		echo "  - $$HOME/.cargo/bin/hal"; \
-		echo "  - /usr/local/bin/hal"; \
-		echo "  - $$HOME/.local/bin/hal"; \
-		echo "  - /usr/bin/hal"; \
-		echo "✓ hal is not installed (or already removed)"; \
+		echo "  - $$HOME/.cargo/bin/halvor"; \
+		echo "  - /usr/local/bin/halvor"; \
+		echo "  - $$HOME/.local/bin/halvor"; \
+		echo "  - /usr/bin/halvor"; \
+		echo "✓ halvor is not installed (or already removed)"; \
 	else \
 		echo "✓ hal uninstalled successfully"; \
 	fi

@@ -4,7 +4,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-const CONFIG_DIR_NAME: &str = "hal";
+const CONFIG_DIR_NAME: &str = "halvor";
 const CONFIG_FILE_NAME: &str = "config.toml";
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -156,7 +156,11 @@ pub fn init_config_interactive() -> Result<()> {
 
     let config = load_config()?;
 
+    // Show current configuration summary
+    show_config_summary()?;
+
     if let Some(ref env_path) = config.env_file_path {
+        println!();
         println!("Current environment file: {}", env_path.display());
         print!("Change it? [y/N]: ");
         io::stdout().flush()?;
@@ -175,6 +179,28 @@ pub fn init_config_interactive() -> Result<()> {
     println!("This file contains your host configurations and credentials.");
     println!();
 
+    // Try to find default .env file location
+    let default_env = get_default_env_path()?;
+    if default_env.exists() {
+        println!("Found .env file at: {}", default_env.display());
+        print!("Use this location? [Y/n]: ");
+        io::stdout().flush()?;
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+
+        if input.trim().is_empty()
+            || input.trim().to_lowercase() == "y"
+            || input.trim().to_lowercase() == "yes"
+        {
+            set_env_file_path(&default_env)?;
+            println!();
+            println!("✓ Configuration saved!");
+            println!("  Config location: {}", get_config_file_path()?.display());
+            println!("  Environment file: {}", default_env.display());
+            return Ok(());
+        }
+    }
+
     let env_path = prompt_for_env_file()?;
     set_env_file_path(&env_path)?;
 
@@ -182,6 +208,128 @@ pub fn init_config_interactive() -> Result<()> {
     println!("✓ Configuration saved!");
     println!("  Config location: {}", get_config_file_path()?.display());
     println!("  Environment file: {}", env_path.display());
+
+    Ok(())
+}
+
+/// Get default .env file path (in user's home directory)
+fn get_default_env_path() -> Result<PathBuf> {
+    let home = get_home_dir()?;
+    Ok(home.join(".env"))
+}
+
+/// Show configuration summary with servers from env and database
+fn show_config_summary() -> Result<()> {
+    use crate::config;
+    use crate::db;
+
+    println!("Configuration Summary");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!();
+
+    // Get servers from env file
+    let homelab_dir = config::find_homelab_dir();
+    let env_hosts = if let Ok(dir) = &homelab_dir {
+        match config::load_env_config(dir) {
+            Ok(cfg) => Some(cfg.hosts),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    // Get servers from database
+    let db_hosts = db::list_hosts().ok();
+    let mut db_host_configs = std::collections::HashMap::new();
+    if let Some(hosts) = &db_hosts {
+        for hostname in hosts {
+            if let Ok(Some(config)) = db::get_host_config(hostname) {
+                db_host_configs.insert(hostname.clone(), config);
+            }
+        }
+    }
+
+    // Show env file servers
+    if let Some(hosts) = &env_hosts {
+        if !hosts.is_empty() {
+            println!("Servers in .env file:");
+            let mut hostnames: Vec<_> = hosts.keys().collect();
+            hostnames.sort();
+            for hostname in hostnames {
+                let host_config = &hosts[hostname];
+                let mut info = vec![];
+                if host_config.ip.is_some() {
+                    info.push("IP");
+                }
+                if host_config.tailscale.is_some() {
+                    info.push("Tailscale");
+                }
+                if host_config.backup_path.is_some() {
+                    info.push("Backup");
+                }
+                println!("  • {} ({})", hostname, info.join(", "));
+            }
+        } else {
+            println!("No servers found in .env file");
+        }
+    } else {
+        println!("No .env file found or could not be loaded");
+    }
+
+    println!();
+
+    // Show database servers
+    if let Some(hosts) = &db_hosts {
+        if !hosts.is_empty() {
+            println!("Servers in database:");
+            let mut hostnames = hosts.clone();
+            hostnames.sort();
+            for hostname in hostnames {
+                let config = db_host_configs.get(&hostname);
+                let mut info = vec![];
+                if let Some(cfg) = config {
+                    if cfg.ip.is_some() {
+                        info.push("IP");
+                    }
+                    if cfg.tailscale.is_some() {
+                        info.push("Tailscale");
+                    }
+                    if cfg.backup_path.is_some() {
+                        info.push("Backup");
+                    }
+                }
+                if info.is_empty() {
+                    println!("  • {} (no config)", hostname);
+                } else {
+                    println!("  • {} ({})", hostname, info.join(", "));
+                }
+            }
+        } else {
+            println!("No servers found in database");
+        }
+    } else {
+        println!("No servers found in database");
+    }
+
+    println!();
+
+    // Show overlap
+    if let (Some(env_hosts), Some(db_hosts)) = (&env_hosts, &db_hosts) {
+        let env_set: std::collections::HashSet<_> = env_hosts.keys().collect();
+        let db_set: std::collections::HashSet<_> = db_hosts.iter().collect();
+        let in_both: Vec<_> = env_set.intersection(&db_set).collect();
+
+        if !in_both.is_empty() {
+            println!("Servers in both .env file and database:");
+            let mut sorted: Vec<_> = in_both.iter().map(|s| s.to_string()).collect();
+            sorted.sort();
+            for hostname in sorted {
+                println!("  • {}", hostname);
+            }
+        } else {
+            println!("No servers found in both .env file and database");
+        }
+    }
 
     Ok(())
 }

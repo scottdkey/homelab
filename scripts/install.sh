@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Cross-platform installation script for hal
+# Cross-platform installation script for halvor
 # Downloads and installs the pre-built binary from GitHub releases
 
 set -e
@@ -16,7 +16,7 @@ GITHUB_REPO="${GITHUB_REPO:-scottdkey/homelab}"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}"
 GITHUB_RAW="https://raw.githubusercontent.com/${GITHUB_REPO}"
 
-echo "Installing hal (Homelab Automation Layer)..."
+echo "Installing halvor (Homelab Automation Layer)..."
 
 # Detect OS and architecture
 detect_platform() {
@@ -78,10 +78,10 @@ download_binary() {
     
     if [ "$version" = "latest" ]; then
         # Try to get from latest release
-        download_url=$(curl -s "${GITHUB_API}/releases/latest" | grep "browser_download_url.*hal-.*-${platform}.tar.gz" | cut -d '"' -f 4 | head -1)
+        download_url=$(curl -s "${GITHUB_API}/releases/latest" | grep "browser_download_url.*halvor-.*-${platform}.tar.gz" | cut -d '"' -f 4 | head -1)
     else
         # Get from specific release
-        download_url=$(curl -s "${GITHUB_API}/releases/tags/${version}" | grep "browser_download_url.*hal-.*-${platform}.tar.gz" | cut -d '"' -f 4 | head -1)
+        download_url=$(curl -s "${GITHUB_API}/releases/tags/${version}" | grep "browser_download_url.*halvor-.*-${platform}.tar.gz" | cut -d '"' -f 4 | head -1)
     fi
     
     if [ -z "$download_url" ]; then
@@ -93,7 +93,7 @@ download_binary() {
     echo -e "${GREEN}Downloading from: ${download_url}${NC}" >&2
     
     local temp_dir=$(mktemp -d)
-    local archive_path="${temp_dir}/hal.tar.gz"
+    local archive_path="${temp_dir}/halvor.tar.gz"
     
     curl -L -o "$archive_path" "$download_url" || {
         echo -e "${RED}Error: Failed to download binary${NC}" >&2
@@ -102,7 +102,7 @@ download_binary() {
     }
     
     tar -xzf "$archive_path" -C "$temp_dir"
-    echo "$temp_dir/hal"
+    echo "$temp_dir/halvor"
 }
 
 PLATFORM=$(detect_platform)
@@ -131,11 +131,11 @@ else
     exit 1
 fi
 
-INSTALL_PATH="$INSTALL_DIR/hal"
+INSTALL_PATH="$INSTALL_DIR/halvor"
 
-# Check if hal already exists
+# Check if halvor already exists
 if [ -e "$INSTALL_PATH" ]; then
-    echo -e "${YELLOW}hal already exists at $INSTALL_PATH${NC}"
+    echo -e "${YELLOW}halvor already exists at $INSTALL_PATH${NC}"
     read -p "Overwrite? (y/N) " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -146,7 +146,7 @@ if [ -e "$INSTALL_PATH" ]; then
 fi
 
 # Download and install
-echo "Downloading hal binary..."
+echo "Downloading halvor binary..."
 BINARY_PATH=$(download_binary "$VERSION" "$PLATFORM")
 
 # Move binary to install location
@@ -156,7 +156,7 @@ chmod +x "$INSTALL_PATH"
 # Cleanup
 rm -rf "$(dirname "$BINARY_PATH")"
 
-echo -e "${GREEN}✓ hal installed to $INSTALL_PATH${NC}"
+echo -e "${GREEN}✓ halvor installed to $INSTALL_PATH${NC}"
 
 # Check if install directory is in PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
@@ -170,7 +170,7 @@ echo ""
 echo -e "${GREEN}Installation complete!${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Configure HAL: hal config init"
+echo "  1. Configure HAL: halvor config init"
 echo "     (This sets up the path to your .env file)"
 echo "  2. Setup SSH hosts: ./scripts/setup-ssh-hosts.sh"
 echo "  3. Setup SSH keys: ./scripts/setup-ssh-keys.sh <hostname>"

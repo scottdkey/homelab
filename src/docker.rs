@@ -353,66 +353,95 @@ pub fn configure_ipv6<E: CommandExecutor>(exec: &E) -> Result<()> {
         // Update existing daemon.json
         println!("Updating existing Docker daemon configuration...");
 
-        // Try Python3 first
-        if exec.check_command_exists("python3")? {
-            let python_script = format!(
-                r#"import json; f=open('/etc/docker/daemon.json','r'); c=json.load(f); f.close(); c['ipv6']=True; c['fixed-cidr-v6']='{}'; f=open('/etc/docker/daemon.json','w'); json.dump(c,f,indent=2); f.close()"#,
-                ipv6_subnet
-            );
-            exec.execute_interactive("sudo", &["python3", "-c", &python_script])?;
-        } else if exec.check_command_exists("jq")? {
-            // Use Rust-native JSON manipulation
-            update_daemon_json_rust(exec, ipv6_subnet)?;
-        } else {
-            // Fallback: backup and create new
-            println!(
-                "Warning: python3/jq not found, backing up existing config and creating new one"
-            );
-            exec.execute_interactive(
-                "sudo",
-                &[
-                    "cp",
-                    "/etc/docker/daemon.json",
-                    "/etc/docker/daemon.json.backup",
-                ],
-            )?;
-            let config = json!({
-                "ipv6": true,
-                "fixed-cidr-v6": ipv6_subnet
-            });
-            let config_str = serde_json::to_string_pretty(&config)?;
-            exec.write_file("/tmp/daemon.json", config_str.as_bytes())?;
-            exec.execute_interactive(
-                "sudo",
-                &["mv", "/tmp/daemon.json", "/etc/docker/daemon.json"],
-            )?;
-            println!("Original config backed up to /etc/docker/daemon.json.backup");
+        // Use Rust-native JSON manipulation (more reliable than Python via SSH)
+        match update_daemon_json_rust(exec, ipv6_subnet) {
+            Ok(_) => {
+                println!("✓ Docker daemon configuration updated");
+            }
+            Err(e) => {
+                // Fallback: backup and create new if Rust method fails
+                println!("Warning: Failed to update existing config: {}", e);
+                println!("Backing up existing config and creating new one...");
+                exec.execute_interactive(
+                    "sudo",
+                    &[
+                        "cp",
+                        "/etc/docker/daemon.json",
+                        "/etc/docker/daemon.json.backup",
+                    ],
+                )?;
+                let config = json!({
+                    "ipv6": true,
+                    "fixed-cidr-v6": ipv6_subnet
+                });
+                let config_str = serde_json::to_string_pretty(&config)?;
+                exec.write_file("/tmp/daemon.json", config_str.as_bytes())?;
+                exec.execute_interactive(
+                    "sudo",
+                    &["mv", "/tmp/daemon.json", "/etc/docker/daemon.json"],
+                )?;
+                println!("Original config backed up to /etc/docker/daemon.json.backup");
+            }
         }
     }
 
     println!("✓ IPv6 configured in Docker daemon");
     println!("Restarting Docker daemon to apply changes...");
 
-    if exec.check_command_exists("systemctl")? {
-        exec.execute_interactive("sudo", &["systemctl", "restart", "docker"])?;
+    let restart_result = if exec.check_command_exists("systemctl")? {
+        exec.execute_interactive("sudo", &["systemctl", "restart", "docker"])
     } else if exec.check_command_exists("service")? {
-        exec.execute_interactive("sudo", &["service", "docker", "restart"])?;
+        exec.execute_interactive("sudo", &["service", "docker", "restart"])
     } else {
         println!(
             "Warning: Could not restart Docker daemon. Please restart manually: sudo systemctl restart docker"
         );
+        return Ok(());
+    };
+
+    match restart_result {
+        Ok(_) => {
+            println!("✓ Docker daemon restarted successfully");
+        }
+        Err(e) => {
+            println!("Error: Failed to restart Docker daemon: {}", e);
+            println!();
+            println!("This may indicate a syntax error in /etc/docker/daemon.json");
+            println!("To diagnose:");
+            println!("  1. Check Docker daemon status: sudo systemctl status docker.service");
+            println!("  2. Check Docker logs: sudo journalctl -xeu docker.service");
+            println!(
+                "  3. Validate daemon.json: sudo python3 -m json.tool /etc/docker/daemon.json"
+            );
+            println!(
+                "  4. If needed, restore backup: sudo cp /etc/docker/daemon.json.backup /etc/docker/daemon.json"
+            );
+            return Err(e).context("Docker daemon restart failed - check daemon.json syntax");
+        }
     }
 
-    // Wait a moment
-    std::thread::sleep(std::time::Duration::from_secs(2));
+    // Wait a moment for Docker to start
+    std::thread::sleep(std::time::Duration::from_secs(3));
 
-    // Verify IPv6 is enabled
-    let verify_output = exec.execute_simple("docker", &["info"])?;
-    let docker_info = String::from_utf8_lossy(&verify_output.stdout);
-    if docker_info.to_lowercase().contains("ipv6") && docker_info.to_lowercase().contains("true") {
-        println!("✓ IPv6 verified in Docker");
-    } else {
-        println!("Warning: IPv6 may not be enabled. Check with: docker info | grep -i ipv6");
+    // Verify Docker is running and IPv6 is enabled
+    let verify_output = exec.execute_simple("docker", &["info"]);
+    match verify_output {
+        Ok(output) => {
+            let docker_info = String::from_utf8_lossy(&output.stdout);
+            if docker_info.to_lowercase().contains("ipv6")
+                && docker_info.to_lowercase().contains("true")
+            {
+                println!("✓ IPv6 verified in Docker");
+            } else {
+                println!(
+                    "Warning: IPv6 may not be enabled. Check with: docker info | grep -i ipv6"
+                );
+            }
+        }
+        Err(e) => {
+            println!("Warning: Could not verify Docker status: {}", e);
+            println!("Docker may still be starting up. Check with: docker info");
+        }
     }
 
     Ok(())
@@ -429,9 +458,20 @@ fn update_daemon_json_rust<E: CommandExecutor>(exec: &E, ipv6_subnet: &str) -> R
     config["ipv6"] = json!(true);
     config["fixed-cidr-v6"] = json!(ipv6_subnet);
 
-    // Write updated config
+    // Validate JSON before writing
     let updated_content = serde_json::to_string_pretty(&config)?;
+
+    // Verify the JSON is valid by parsing it back
+    serde_json::from_str::<Value>(&updated_content)
+        .with_context(|| "Generated invalid JSON for daemon.json")?;
+
     exec.write_file("/tmp/daemon.json", updated_content.as_bytes())?;
+
+    // Validate the file can be read back as JSON before moving it
+    let verify_content = exec.read_file("/tmp/daemon.json")?;
+    serde_json::from_str::<Value>(&verify_content)
+        .with_context(|| "Written file contains invalid JSON")?;
+
     exec.execute_interactive(
         "sudo",
         &["mv", "/tmp/daemon.json", "/etc/docker/daemon.json"],

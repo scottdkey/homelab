@@ -35,10 +35,10 @@ pub fn provision_host(
     }
     println!();
 
-    // Copy Portainer compose file if needed (only for remote)
-    if !is_local && portainer_host {
+    // Copy Portainer compose file (needed for both local and remote)
+    if portainer_host {
         copy_compose_file(&exec, edition.compose_file())?;
-    } else if !is_local {
+    } else {
         copy_compose_file(&exec, "portainer-agent.docker-compose.yml")?;
     }
 

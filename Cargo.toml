@@ -1,5 +1,5 @@
 [package]
-name = "hal"
+name = "halvor"
 version = "0.0.6"
 edition = "2024"
 authors = ["Scott Key <scott@scottkey.dev>"]
@@ -7,7 +7,7 @@ description = "Homelab Automation Layer - CLI tool for managing homelab infrastr
 license = "MIT"
 
 [[bin]]
-name = "hal"
+name = "halvor"
 path = "src/main.rs"
 
 [dependencies]
@@ -35,6 +35,11 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 aes-gcm = "0.10"
 base64 = "0.22"
 rand = "0.8"
+glob = "0.3"
+uuid = { version = "1.10", features = ["v4", "serde"] }
 
 [dev-dependencies]
 cargo-watch = "8.5"
+
+[build-dependencies]
+# No build dependencies needed - using std only

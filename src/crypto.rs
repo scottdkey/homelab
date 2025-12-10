@@ -6,9 +6,8 @@ use aes_gcm::{
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose};
 use std::fs;
-use std::path::PathBuf;
 
-const KEY_FILE_NAME: &str = ".hal_key";
+const KEY_FILE_NAME: &str = ".halvor_key";
 
 /// Get or create the encryption key
 fn get_or_create_key() -> Result<Key<Aes256Gcm>> {

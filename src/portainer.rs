@@ -56,12 +56,23 @@ pub fn install_host<E: CommandExecutor>(exec: &E, edition: PortainerEdition) -> 
     // Start Portainer
     exec.mkdir_p("$HOME/portainer")?;
 
+    // Verify compose file exists
+    let compose_file_path = "$HOME/portainer/docker-compose.yml";
+    if !exec.file_exists(compose_file_path)? {
+        anyhow::bail!(
+            "Docker compose file not found at {}. Please ensure the compose file has been copied.",
+            compose_file_path
+        );
+    }
+
     // Get docker compose command from docker module
     let compose_cmd = docker::get_compose_command(exec)?;
 
+    // Use explicit -f flag to specify the compose file with full path
+    let compose_file_path = "$HOME/portainer/docker-compose.yml";
     exec.execute_shell_interactive(&format!(
-        "cd $HOME/portainer && {} down 2>/dev/null || true && {} up -d",
-        compose_cmd, compose_cmd
+        "cd $HOME/portainer && {} -f {} down 2>/dev/null || true && {} -f {} up -d",
+        compose_cmd, compose_file_path, compose_cmd, compose_file_path
     ))?;
 
     println!(
@@ -94,12 +105,23 @@ pub fn install_agent<E: CommandExecutor>(exec: &E) -> Result<()> {
     // Start Portainer Agent
     exec.mkdir_p("$HOME/portainer")?;
 
+    // Verify compose file exists
+    let compose_file_path = "$HOME/portainer/docker-compose.yml";
+    if !exec.file_exists(compose_file_path)? {
+        anyhow::bail!(
+            "Docker compose file not found at {}. Please ensure the compose file has been copied.",
+            compose_file_path
+        );
+    }
+
     // Get docker compose command from docker module
     let compose_cmd = docker::get_compose_command(exec)?;
 
+    // Use explicit -f flag to specify the compose file with full path
+    let compose_file_path = "$HOME/portainer/docker-compose.yml";
     exec.execute_shell_interactive(&format!(
-        "cd $HOME/portainer && {} down 2>/dev/null || true && {} up -d",
-        compose_cmd, compose_cmd
+        "cd $HOME/portainer && {} -f {} down 2>/dev/null || true && {} -f {} up -d",
+        compose_cmd, compose_file_path, compose_cmd, compose_file_path
     ))?;
 
     println!("✓ Portainer Agent installed and running");
@@ -132,9 +154,19 @@ pub fn copy_compose_file<E: CommandExecutor>(exec: &E, compose_filename: &str) -
     exec.write_file(
         "$HOME/portainer/docker-compose.yml",
         compose_content.as_bytes(),
-    )?;
+    )
+    .with_context(|| {
+        format!("Failed to write compose file to $HOME/portainer/docker-compose.yml")
+    })?;
 
-    println!("✓ Copied {} to remote system", compose_filename);
+    // Verify the file was written correctly
+    if !exec.file_exists("$HOME/portainer/docker-compose.yml")? {
+        anyhow::bail!(
+            "Compose file was not found after writing. Please check permissions and disk space."
+        );
+    }
+
+    println!("✓ Copied {} to $HOME/portainer/", compose_filename);
     Ok(())
 }
 
@@ -160,9 +192,10 @@ pub fn install_portainer_host(hostname: &str, edition: &str, config: &EnvConfig)
             hostname,
             target_host
         );
-        // Copy compose file for remote
-        copy_compose_file(&exec, edition_enum.compose_file())?;
     }
+
+    // Copy compose file (needed for both local and remote)
+    copy_compose_file(&exec, edition_enum.compose_file())?;
     println!();
 
     install_host(&exec, edition_enum)?;
@@ -195,9 +228,10 @@ pub fn install_portainer_agent(hostname: &str, edition: &str, config: &EnvConfig
             "Installing Portainer Agent on {} ({})...",
             hostname, target_host
         );
-        // Copy compose file for remote
-        copy_compose_file(&exec, "portainer-agent.docker-compose.yml")?;
     }
+
+    // Copy compose file (needed for both local and remote)
+    copy_compose_file(&exec, "portainer-agent.docker-compose.yml")?;
     println!();
 
     install_agent(&exec)?;

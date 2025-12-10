@@ -1,66 +1,32 @@
-mod backup;
-mod config;
-mod config_manager;
-mod crypto;
-mod db;
-mod docker;
-mod exec;
-mod networking;
-mod npm;
-mod portainer;
-mod provision;
-mod smb;
-mod ssh;
-mod sync;
-mod tailscale;
-mod update;
-mod vpn;
+pub mod backup;
+mod commands;
+pub mod config;
+pub mod config_manager;
+pub mod crypto;
+pub mod db;
+pub mod docker;
+pub mod exec;
+pub mod networking;
+pub mod npm;
+pub mod portainer;
+pub mod provision;
+pub mod smb;
+pub mod ssh;
+pub mod sync;
+pub mod tailscale;
+pub mod update;
+pub mod vpn;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::env;
-
-fn check_for_updates() {
-    // Check for updates in background (non-blocking)
-    if let Ok(Some(new_version)) = update::check_for_updates(env!("CARGO_PKG_VERSION")) {
-        if let Ok(true) = update::prompt_for_update(&new_version, env!("CARGO_PKG_VERSION")) {
-            if let Err(e) = update::download_and_install_update(&new_version) {
-                eprintln!("Failed to install update: {}", e);
-            }
-        }
-    }
-}
 
 #[derive(Parser)]
-#[command(name = "hal")]
+#[command(name = "halvor")]
 #[command(about = "Homelab Automation Layer - CLI tool for managing homelab infrastructure", long_about = None)]
-#[command(version = get_version_string())]
+#[command(version = commands::utils::get_version_string())]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
-}
-
-fn get_version_string() -> &'static str {
-    // Return base version - we'll enhance it in print_version_with_channel
-    env!("CARGO_PKG_VERSION")
-}
-
-fn print_version_with_channel() {
-    let version = env!("CARGO_PKG_VERSION");
-
-    // Try to determine if this is an experimental build
-    // by checking if the executable timestamp matches an experimental release
-    let version_string = if let Ok(channel) = update::detect_release_channel() {
-        match channel {
-            update::ReleaseChannel::Experimental => format!("{} (experimental)", version),
-            update::ReleaseChannel::Stable => format!("{} (stable)", version),
-            update::ReleaseChannel::Unknown => version.to_string(),
-        }
-    } else {
-        version.to_string()
-    };
-
-    println!("hal {}", version_string);
 }
 
 #[derive(Subcommand)]
@@ -123,9 +89,19 @@ enum Commands {
         command: VpnCommands,
     },
     /// Configure HAL settings (environment file location, etc.)
+    /// Usage: halvor config [hostname] [command]
     Config {
+        /// Optional positional argument - can be hostname or command
+        #[arg(value_name = "HOSTNAME_OR_COMMAND")]
+        arg: Option<String>,
+        /// Show verbose output (including passwords)
+        #[arg(short, long)]
+        verbose: bool,
+        /// Show database configuration instead of .env
+        #[arg(long)]
+        db: bool,
         #[command(subcommand)]
-        command: ConfigCommands,
+        command: Option<ConfigCommands>,
     },
     /// Sync encrypted data between hal installations
     Sync {
@@ -135,6 +111,11 @@ enum Commands {
         #[arg(long)]
         pull: bool,
     },
+    /// Manage database migrations
+    Migrate {
+        #[command(subcommand)]
+        command: MigrateCommands,
+    },
     /// Check for and install updates
     Update {
         /// Use experimental channel for updates (versionless, continuously updated)
@@ -143,6 +124,18 @@ enum Commands {
         /// Force download and install the latest version (skips version check)
         #[arg(long)]
         force: bool,
+    },
+    /// Uninstall halvor (and old hal) from the system
+    Uninstall {
+        /// Skip confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
+    /// List available servers/hosts
+    List {
+        /// Show verbose information about each server
+        #[arg(long)]
+        verbose: bool,
     },
 }
 
@@ -219,8 +212,32 @@ enum BackupCommands {
     },
 }
 
-#[derive(Subcommand)]
-enum ConfigCommands {
+// Export command enums for use in command modules
+#[derive(Subcommand, Clone)]
+pub enum MigrateCommands {
+    /// Run the next pending migration (migrate forward one)
+    Up,
+    /// Rollback the last applied migration (migrate backward one)
+    Down,
+    /// Show migration status
+    Status,
+    /// Generate a new migration file
+    Generate {
+        /// Migration description (e.g., "add users table")
+        description: Vec<String>,
+    },
+    /// Alias for generate
+    #[command(name = "g")]
+    GenerateShort {
+        /// Migration description (e.g., "add users table")
+        description: Vec<String>,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum ConfigCommands {
+    /// Show current configuration
+    Show,
     /// Initialize or update HAL configuration (interactive)
     Init,
     /// Set the environment file path
@@ -228,249 +245,105 @@ enum ConfigCommands {
         /// Path to the .env file
         path: String,
     },
-    /// Show current configuration
-    Show,
     /// Set release channel to stable
     #[command(name = "stable")]
     SetStable,
     /// Set release channel to experimental
     #[command(name = "experimental")]
     SetExperimental,
+    /// Create new configuration
+    Create {
+        #[command(subcommand)]
+        command: CreateConfigCommands,
+    },
+    /// Create example .env file
+    Env,
+    /// Backup SQLite database
+    Db {
+        #[command(subcommand)]
+        command: DbCommands,
+    },
+    /// Set backup location (for current system if no hostname provided)
+    Backup {
+        /// Hostname to set backup location for (only used when called without hostname)
+        hostname: Option<String>,
+    },
+    /// Commit host configuration to database (from .env to DB)
+    Commit,
+    /// Write host configuration back to .env file (from DB to .env)
+    #[command(name = "backup")]
+    BackupToEnv,
+    /// Delete host configuration
+    Delete {
+        /// Also delete from .env file
+        #[arg(long)]
+        from_env: bool,
+    },
+    /// Set IP address for hostname
+    Ip {
+        /// IP address
+        value: String,
+    },
+    /// Set hostname for hostname (primary hostname)
+    Hostname {
+        /// Hostname value
+        value: String,
+    },
+    /// Set Tailscale hostname (optional, different from primary hostname)
+    Tailscale {
+        /// Tailscale hostname value
+        value: String,
+    },
+    /// Set backup path for hostname
+    BackupPath {
+        /// Backup path
+        value: String,
+    },
+    /// Show differences between .env and database configurations
+    Diff,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum CreateConfigCommands {
+    /// Create app configuration (backup location, etc.)
+    App,
+    /// Create SMB server configuration
+    Smb {
+        /// Server name
+        server_name: Option<String>,
+    },
+    /// Create SSH host configuration
+    Ssh {
+        /// Hostname
+        hostname: Option<String>,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum DbCommands {
+    /// Backup the SQLite database
+    Backup {
+        /// Path to save backup (defaults to current directory with timestamp)
+        #[arg(long)]
+        path: Option<String>,
+    },
+    /// Generate Rust structs from database schema
+    Generate,
 }
 
 fn main() -> Result<()> {
     // Handle version flags before parsing (to show channel info)
     let args: Vec<String> = std::env::args().collect();
     if args.len() == 2 && (args[1] == "--version" || args[1] == "-V") {
-        print_version_with_channel();
+        commands::utils::print_version_with_channel();
         return Ok(());
     }
 
     // Check for updates (non-blocking, only in production mode)
-    check_for_updates();
+    commands::utils::check_for_updates();
 
     let cli = Cli::parse();
-
-    match cli.command {
-        Commands::Tailscale { command } => match command {
-            TailscaleCommands::Install { hostname } => {
-                if hostname == "localhost" {
-                    // For localhost, use the original function (no config needed)
-                    tailscale::install_tailscale()?;
-                } else {
-                    let homelab_dir = config::find_homelab_dir()?;
-                    let config = config::load_env_config(&homelab_dir)?;
-                    tailscale::install_tailscale_on_host(&hostname, &config)?;
-                }
-            }
-        },
-        Commands::Docker { command } => match command {
-            DockerCommands::Install { hostname } => {
-                let homelab_dir = config::find_homelab_dir()?;
-                let config = config::load_env_config(&homelab_dir)?;
-                docker::install_docker(&hostname, &config)?;
-            }
-        },
-        Commands::Portainer { command } => match command {
-            PortainerCommands::Install {
-                hostname,
-                edition,
-                host,
-            } => {
-                let homelab_dir = config::find_homelab_dir()?;
-                let config = config::load_env_config(&homelab_dir)?;
-                if host {
-                    portainer::install_portainer_host(&hostname, &edition, &config)?;
-                } else {
-                    portainer::install_portainer_agent(&hostname, &edition, &config)?;
-                }
-            }
-        },
-        Commands::Provision {
-            hostname,
-            portainer_host,
-            portainer_edition,
-        } => {
-            let homelab_dir = config::find_homelab_dir()?;
-            let config = config::load_env_config(&homelab_dir)?;
-            provision::provision_host(&hostname, portainer_host, &portainer_edition, &config)?;
-        }
-        Commands::Smb {
-            hostname,
-            uninstall,
-        } => {
-            let homelab_dir = config::find_homelab_dir()?;
-            let config = config::load_env_config(&homelab_dir)?;
-            if uninstall {
-                smb::uninstall_smb_mounts(&hostname, &config)?;
-            } else {
-                smb::setup_smb_mounts(&hostname, &config)?;
-            }
-        }
-        Commands::Backup { hostname, command } => {
-            let homelab_dir = config::find_homelab_dir()?;
-            let config = config::load_env_config(&homelab_dir)?;
-            match command {
-                BackupCommands::Create => backup::backup_host(&hostname, &config)?,
-                BackupCommands::List => backup::list_backups(&hostname, &config)?,
-                BackupCommands::Restore { backup } => {
-                    backup::restore_host(&hostname, backup.as_deref(), &config)?
-                }
-            }
-        }
-        Commands::Npm {
-            hostname,
-            compose_file,
-            service,
-        } => {
-            let homelab_dir = config::find_homelab_dir()?;
-            let config = config::load_env_config(&homelab_dir)?;
-            // Use tokio runtime for async
-            let rt = tokio::runtime::Runtime::new()?;
-            if let Some(service_spec) = service {
-                rt.block_on(npm::setup_single_proxy_host(
-                    &hostname,
-                    &service_spec,
-                    &config,
-                ))?;
-            } else if !compose_file.is_empty() {
-                rt.block_on(npm::setup_proxy_hosts(&hostname, &compose_file, &config))?;
-            } else {
-                anyhow::bail!("Either --service or compose_file must be provided");
-            }
-        }
-        Commands::Vpn { command } => match command {
-            VpnCommands::Build { github_user, tag } => {
-                let config_dir = config::find_homelab_dir()?;
-                let config = config::load_env_config(&config_dir)?;
-                // For build, use localhost as default hostname (builds are typically local)
-                let build_hostname = "localhost";
-                vpn::build_and_push_vpn_image(
-                    build_hostname,
-                    &github_user,
-                    tag.as_deref(),
-                    &config,
-                )?;
-            }
-            VpnCommands::Deploy { hostname } => {
-                let config_dir = config::find_homelab_dir()?;
-                let config = config::load_env_config(&config_dir)?;
-                vpn::deploy_vpn(&hostname, &config)?;
-            }
-            VpnCommands::Verify { hostname } => {
-                let config_dir = config::find_homelab_dir()?;
-                let config = config::load_env_config(&config_dir)?;
-                vpn::verify_vpn(&hostname, &config)?;
-            }
-        },
-        Commands::Update {
-            experimental,
-            force,
-        } => {
-            let current_version = env!("CARGO_PKG_VERSION");
-
-            if force {
-                // Force mode: get the latest version and install it regardless of current version
-                if experimental {
-                    println!("Force mode: Downloading latest experimental version...");
-                    let latest_version = update::get_latest_experimental_version()?;
-                    println!("Latest experimental version: {}", latest_version);
-                    update::download_and_install_update(&latest_version)?;
-                } else {
-                    println!("Force mode: Downloading latest stable version...");
-                    let latest_version = update::get_latest_version()?;
-                    println!("Latest version: {}", latest_version);
-                    update::download_and_install_update(&latest_version)?;
-                }
-            } else if experimental {
-                // Experimental channel: check for updates based on timestamps (versionless)
-                if let Ok(Some(new_version)) =
-                    update::check_for_experimental_updates(current_version)
-                {
-                    if update::prompt_for_update(&new_version, current_version)? {
-                        update::download_and_install_update(&new_version)?;
-                    }
-                } else {
-                    println!("You're already running the latest experimental version.");
-                }
-            } else if let Ok(Some(new_version)) = update::check_for_updates(current_version) {
-                if update::prompt_for_update(&new_version, current_version)? {
-                    update::download_and_install_update(&new_version)?;
-                }
-            } else {
-                println!(
-                    "You're already running the latest version: {}",
-                    current_version
-                );
-            }
-        }
-        Commands::Config { command } => match command {
-            ConfigCommands::Init => {
-                config_manager::init_config_interactive()?;
-            }
-            ConfigCommands::SetEnv { path } => {
-                let env_path = std::path::PathBuf::from(&path);
-                let env_path = if env_path.is_relative() {
-                    std::env::current_dir()?.join(&env_path)
-                } else {
-                    env_path
-                };
-                let env_path = env_path
-                    .canonicalize()
-                    .with_context(|| format!("Failed to resolve path: {}", path))?;
-
-                if !env_path.exists() {
-                    anyhow::bail!("File does not exist: {}", env_path.display());
-                }
-
-                config_manager::set_env_file_path(&env_path)?;
-            }
-            ConfigCommands::Show => {
-                let hal_config = config_manager::load_config()?;
-                println!("HAL Configuration");
-                println!("=================");
-                println!();
-
-                if let Some(ref env_path) = hal_config.env_file_path {
-                    println!("Environment file: {}", env_path.display());
-                    if env_path.exists() {
-                        println!("  Status: ✓ Found");
-                    } else {
-                        println!("  Status: ✗ Not found");
-                    }
-                } else {
-                    println!("Environment file: Not configured");
-                    println!("  Run 'hal config init' to set it up");
-                }
-
-                println!();
-                println!(
-                    "Config file location: {}",
-                    config_manager::get_config_file_path()?.display()
-                );
-                let channel_name = match hal_config.release_channel {
-                    config_manager::ReleaseChannel::Stable => "stable",
-                    config_manager::ReleaseChannel::Experimental => "experimental",
-                };
-                println!("Release channel: {}", channel_name);
-                println!();
-                if let Ok(db_path) = db::get_db_path() {
-                    println!("Database location: {}", db_path.display());
-                }
-            }
-            ConfigCommands::SetStable => {
-                config_manager::set_release_channel(config_manager::ReleaseChannel::Stable)?;
-            }
-            ConfigCommands::SetExperimental => {
-                config_manager::set_release_channel(config_manager::ReleaseChannel::Experimental)?;
-            }
-        },
-        Commands::Sync { hostname, pull } => {
-            let homelab_dir = config::find_homelab_dir()?;
-            let config = config::load_env_config(&homelab_dir)?;
-            sync::sync_data(&hostname, pull, &config)?;
-        }
-    }
+    commands::handle_command(cli.command)?;
 
     Ok(())
 }

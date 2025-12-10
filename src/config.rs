@@ -3,9 +3,13 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 
+pub mod env_file;
+
+#[derive(Clone)]
 pub struct HostConfig {
     pub ip: Option<String>,
-    pub tailscale: Option<String>,
+    pub hostname: Option<String>, // Primary hostname (replaces tailscale)
+    pub tailscale: Option<String>, // Optional different tailscale hostname
     pub backup_path: Option<String>,
 }
 
@@ -99,14 +103,25 @@ pub fn load_env_config(_homelab_dir: &Path) -> Result<EnvConfig> {
                 let hostname_lower = rest.to_lowercase();
                 let config = hosts.entry(hostname_lower).or_insert_with(|| HostConfig {
                     ip: None,
+                    hostname: None,
                     tailscale: None,
                     backup_path: None,
                 });
                 config.ip = Some(value);
+            } else if let Some(rest) = hostname.strip_suffix("_HOSTNAME") {
+                let hostname_lower = rest.to_lowercase();
+                let config = hosts.entry(hostname_lower).or_insert_with(|| HostConfig {
+                    ip: None,
+                    hostname: None,
+                    tailscale: None,
+                    backup_path: None,
+                });
+                config.hostname = Some(value);
             } else if let Some(rest) = hostname.strip_suffix("_TAILSCALE") {
                 let hostname_lower = rest.to_lowercase();
                 let config = hosts.entry(hostname_lower).or_insert_with(|| HostConfig {
                     ip: None,
+                    hostname: None,
                     tailscale: None,
                     backup_path: None,
                 });
@@ -115,6 +130,7 @@ pub fn load_env_config(_homelab_dir: &Path) -> Result<EnvConfig> {
                 let hostname_lower = rest.to_lowercase();
                 let config = hosts.entry(hostname_lower).or_insert_with(|| HostConfig {
                     ip: None,
+                    hostname: None,
                     tailscale: None,
                     backup_path: None,
                 });
