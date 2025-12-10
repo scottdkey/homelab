@@ -1,6 +1,5 @@
 use crate::agent::api::AgentClient;
 use crate::agent::discovery::DiscoveredHost;
-use crate::agent::server::HostInfo;
 use crate::db;
 use anyhow::Result;
 

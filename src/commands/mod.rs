@@ -122,5 +122,3 @@ pub fn handle_command(hostname: Option<String>, command: Commands) -> Result<()>
 
 // Re-export command enums for convenience (these are used in main.rs)
 // Note: These are re-exported from their respective modules, not defined here
-pub use config::{ConfigCommands, CreateConfigCommands, DbCommands, MigrateCommands};
-pub use pia_vpn::VpnCommands;
