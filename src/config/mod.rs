@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -7,7 +8,7 @@ pub mod config_manager;
 pub mod env_file;
 pub mod service;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct HostConfig {
     pub ip: Option<String>,
     pub hostname: Option<String>, // Primary hostname (replaces tailscale)
