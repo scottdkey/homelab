@@ -94,6 +94,12 @@ enum Commands {
         #[arg(long)]
         uninstall: bool,
     },
+    /// Diagnose Docker daemon issues
+    Docker {
+        /// Run diagnostics instead of installing
+        #[arg(long)]
+        diagnose: bool,
+    },
     /// Automatically create proxy hosts in Nginx Proxy Manager
     Npm {
         /// Docker compose file to read services from (e.g., media.docker-compose.yml)

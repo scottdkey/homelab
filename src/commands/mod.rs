@@ -86,6 +86,14 @@ pub fn handle_command(hostname: Option<String>, command: Commands) -> Result<()>
         Smb { uninstall } => {
             smb::handle_smb(hostname.as_deref(), uninstall)?;
         }
+        Docker { diagnose } => {
+            if diagnose {
+                docker::diagnose_docker(hostname.as_deref())?;
+            } else {
+                let target_host = hostname.as_deref().unwrap_or("localhost");
+                docker::handle_docker(target_host)?;
+            }
+        }
         Npm {
             compose_file,
             service,
