@@ -116,11 +116,9 @@ pub fn handle_command(hostname: Option<String>, command: Commands) -> Result<()>
         } => {
             config::handle_config(None, verbose, db, command.as_ref())?;
         }
+        Db { command } => {
+            config::handle_db_command(command)?;
+        }
     }
     Ok(())
 }
-
-// Re-export command enums for convenience (these are used in main.rs)
-// Note: These are re-exported from their respective modules, not defined here
-pub use config::{ConfigCommands, CreateConfigCommands, DbCommands, MigrateCommands};
-pub use pia_vpn::VpnCommands;

@@ -1,8 +1,6 @@
-use crate::utils::crypto;
 use crate::utils::{bytes_to_string, format_bind_address, read_json, write_json};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
 /// Halvor Agent Server
