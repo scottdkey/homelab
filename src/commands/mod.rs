@@ -8,8 +8,11 @@
 // Declare all command modules - add new modules here
 pub mod agent;
 pub mod backup;
+pub mod build;
 pub mod config;
+pub mod dev;
 pub mod docker;
+pub mod generate;
 pub mod install;
 pub mod list;
 pub mod npm;
@@ -122,6 +125,18 @@ pub fn handle_command(hostname: Option<String>, command: Commands) -> Result<()>
         }
         Agent { command } => {
             agent::handle_agent(command)?;
+        }
+        Build { command } => {
+            build::handle_build(command)?;
+        }
+        Dev { command } => {
+            // Dev commands may be async, so we need to handle them differently
+            // For now, we'll use a runtime if needed
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(dev::handle_dev(command))?;
+        }
+        Generate { command } => {
+            generate::handle_generate(command)?;
         }
     }
     Ok(())

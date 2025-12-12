@@ -1,0 +1,22 @@
+# Xcode
+.DS_Store
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad
+
+# Build artifacts
+Sources/HalvorSwiftFFI/HalvorSwiftFFI.xcframework
+Sources/HalvorSwiftFFI/*.h
+Sources/HalvorSwiftFFI/*.swift
+halvor-ffi/target/
+halvor-ffi/Cargo.lock
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Rust
+**/*.rs.bk
+**/*.pdb

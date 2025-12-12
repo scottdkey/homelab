@@ -10,8 +10,19 @@ use std::path::PathBuf;
 
 const DB_FILE_NAME: &str = "halvor.db";
 
-/// Get the database file path (in the config directory)
+/// Get the database file path (in the config directory or HALVOR_DB_DIR)
 pub fn get_db_path() -> Result<PathBuf> {
+    // Check for HALVOR_DB_DIR environment variable (for Docker/shared database)
+    if let Ok(db_dir) = std::env::var("HALVOR_DB_DIR") {
+        let db_path = PathBuf::from(db_dir).join(DB_FILE_NAME);
+        // Ensure directory exists
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        return Ok(db_path);
+    }
+
+    // Fall back to config directory
     let config_dir = config_manager::get_config_dir()?;
     Ok(config_dir.join(DB_FILE_NAME))
 }

@@ -1,7 +1,9 @@
 // Utils module - common code that calls outside of other modules
 pub mod crypto;
 pub mod exec;
+pub mod ffi_bindings;
 pub mod json_stream;
+pub mod migrations;
 pub mod networking;
 pub mod service;
 pub mod ssh;

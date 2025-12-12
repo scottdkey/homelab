@@ -11,6 +11,8 @@ pub mod provision;
 pub mod smb;
 pub mod sync;
 pub mod tailscale;
+#[cfg(feature = "web-server")]
+pub mod web;
 
 // Re-export commonly used service functions
 pub use backup::{backup_host, list_backups, restore_host as restore_backup};

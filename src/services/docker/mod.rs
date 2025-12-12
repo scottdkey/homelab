@@ -1,7 +1,10 @@
 use crate::config::EnvConfig;
 use crate::utils::exec::{CommandExecutor, Executor};
 use anyhow::{Context, Result};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
+
+#[cfg(feature = "web-server")]
+pub mod build;
 
 /// Check if Docker daemon is running and start it if needed
 pub fn ensure_docker_running<E: CommandExecutor>(exec: &E) -> Result<()> {

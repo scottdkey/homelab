@@ -1,10 +1,15 @@
 [package]
 name = "halvor"
 version = "0.0.6"
-edition = "2024"
+edition = "2021"
 authors = ["Scott Key <scott@scottkey.dev>"]
 description = "Homelab Automation Layer - CLI tool for managing homelab infrastructure"
 license = "MIT"
+
+[lib]
+name = "halvor"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib", "staticlib"]
 
 [[bin]]
 name = "halvor"
@@ -14,32 +19,65 @@ path = "src/main.rs"
 clap = { version = "4.5.53", features = ["derive"] }
 dotenv = "0.15"
 anyhow = "1.0.100"
-which = "8.0"
-chrono = "0.4"
+which = { version = "8.0", optional = true }
+chrono = { version = "0.4", default-features = false, features = [
+  "clock",
+  "serde",
+] }
 reqwest = { version = "0.12", default-features = false, features = [
   "json",
   "cookies",
   "rustls-tls",
   "blocking",
-] }
+], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 toml = "0.9.8"
 yaml-rust = "0.4"
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
-whoami = "1.4"
+tokio = { version = "1", features = [
+  "rt",
+  "rt-multi-thread",
+  "macros",
+  "fs",
+  "process",
+], optional = true }
+axum = { version = "0.7", features = ["multipart", "query"], optional = true }
+tower = { version = "0.4", optional = true }
+tower-http = { version = "0.5", features = ["fs", "cors"], optional = true }
+whoami = { version = "1.4", optional = true }
 flate2 = "1.0"
 tar = "0.4"
 zip = "6.0.0"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
 aes-gcm = "0.10"
 base64 = "0.22"
-rand = "0.8"
+rand = { version = "0.8", optional = true }
 glob = "0.3"
 uuid = { version = "1.10", features = ["v4", "serde"] }
+libc = { version = "0.2", optional = true }
+nix = { version = "0.28", default-features = false, features = [
+  "signal",
+  "process",
+], optional = true }
+halvor-ffi-macro = { path = "halvor-ffi-macro" }
+wasm-bindgen = { version = "0.2", optional = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[features]
+default = ["sqlite", "web-server", "cli"]
+sqlite = ["rusqlite"]
+web-server = ["tokio", "axum", "tower", "tower-http", "cli"]
+cli = ["which", "reqwest", "whoami", "libc", "nix", "rand"]
+# WASM feature kept for potential future use, but not needed for web server
+wasm = ["wasm-bindgen", "getrandom"]
 
 [dev-dependencies]
 cargo-watch = "8.5"
 
 [build-dependencies]
-# No build dependencies needed - using std only
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+proc-macro2 = "1.0"
+quote = "1.0"

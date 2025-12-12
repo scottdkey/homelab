@@ -1,13 +1,24 @@
+// Migration generation utilities
+// This module contains functions to generate migration declarations from migration files
+
+use anyhow::{Context, Result};
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::path::PathBuf;
 
-fn main() {
-    println!("cargo:rerun-if-changed=src/db/migrations");
+/// Generate migrations (for use in build.rs or CLI)
+pub fn generate_migrations() {
+    if let Err(e) = generate_migrations_cli() {
+        eprintln!("Warning: Failed to generate migrations: {}", e);
+    }
+}
 
+/// Generate migrations (CLI version with proper error handling)
+pub fn generate_migrations_cli() -> Result<()> {
     let migrations_dir = Path::new("src/db/migrations");
     if !migrations_dir.exists() {
-        return;
+        return Ok(());
     }
 
     let mut migrations = Vec::new();
@@ -85,7 +96,16 @@ const MIGRATIONS: &[Migration] = &[
         mod_declarations, migrations_array
     );
 
-    let out_dir = env::var("OUT_DIR").unwrap();
-    fs::write(Path::new(&out_dir).join("migrations_gen.rs"), output)
-        .expect("Failed to write generated migrations file");
+    // Write to OUT_DIR if available (build.rs context), otherwise to src/db/migrations/generated.rs
+    let output_path = if let Ok(out_dir) = env::var("OUT_DIR") {
+        PathBuf::from(out_dir).join("migrations_gen.rs")
+    } else {
+        // CLI context - write to a location that can be included
+        PathBuf::from("src/db/migrations").join("generated.rs")
+    };
+
+    fs::write(&output_path, output)
+        .with_context(|| format!("Failed to write migrations file to {:?}", output_path))?;
+
+    Ok(())
 }

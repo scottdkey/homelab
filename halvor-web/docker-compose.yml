@@ -1,0 +1,63 @@
+services:
+  halvor-web-dev:
+    build:
+      context: ..
+      dockerfile: halvor-web/Dockerfile
+      target: development
+    ports:
+      - '13001:13001' # Agent port
+      - '13000:13000' # Web server port
+    volumes:
+      - ../halvor-web:/app/halvor-web
+      - halvor-data:/app/data # Shared database volume
+      - /app/node_modules
+    env_file:
+      - ../.envrc
+    environment:
+      - RUST_LOG=debug
+      - HALVOR_DB_DIR=/app/data
+      - HALVOR_WEB_DIR=/app/halvor-web
+    restart: always
+    healthcheck:
+      test: ['CMD', '/app/healthcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    command: >
+      sh -c "
+        # Start agent with web server
+        halvor agent start --port 13001
+      "
+
+  halvor-web-prod:
+    build:
+      context: ..
+      dockerfile: halvor-web/Dockerfile
+      target: production
+    ports:
+      - '13003:13001' # Agent port (different from dev)
+      - '13004:13000' # Web server port
+    volumes:
+      - halvor-data:/app/data # Shared database volume
+    env_file:
+      - ../.envrc
+    environment:
+      - RUST_LOG=info
+      - HALVOR_DB_DIR=/app/data
+      - HALVOR_WEB_DIR=/app/halvor-web
+    restart: always
+    healthcheck:
+      test: ['CMD', '/app/healthcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  halvor-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/halvor-data # Mount to local filesystem

@@ -26,7 +26,7 @@ impl HostDiscovery {
     }
 
     pub fn default() -> Self {
-        Self { agent_port: 23500 }
+        Self { agent_port: 13001 }
     }
 
     /// Discover hosts via Tailscale
@@ -69,8 +69,6 @@ impl HostDiscovery {
 
                 // Extract network prefix (assume /24 for IPv4)
                 if let Some(prefix) = ip.rsplit('.').nth(1) {
-                    let network = format!("{}.0/24", prefix);
-
                     // Scan network for halvor agents
                     // For now, just check common IPs
                     for i in 1..255 {

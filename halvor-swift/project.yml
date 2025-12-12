@@ -1,0 +1,64 @@
+name: HalvorApp
+options:
+  bundleIdPrefix: dev.scottkey
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "15.0"
+  developmentLanguage: en
+  xcodeVersion: "15.0"
+
+packages:
+  HalvorSwift:
+    path: .
+    productTypes:
+      HalvorSwift: framework
+
+targets:
+  HalvorApp-macOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/HalvorApp
+    dependencies:
+      - package: HalvorSwift
+        product: HalvorSwift
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.scottkey.halvor.macos
+      MACOSX_DEPLOYMENT_TARGET: "15.0"
+      INFOPLIST_FILE: Sources/HalvorApp/Info-macOS.plist
+      EXCLUDED_ARCHS: "x86_64"
+      CODE_SIGN_IDENTITY: ""
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGNING_ALLOWED: NO
+
+  HalvorApp-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/HalvorApp
+    dependencies:
+      - package: HalvorSwift
+        product: HalvorSwift
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.scottkey.halvor.ios
+      IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+      INFOPLIST_FILE: Sources/HalvorApp/Info-iOS.plist
+      EXCLUDED_ARCHS[sdk=iphonesimulator*]: "x86_64"
+      CODE_SIGN_IDENTITY: ""
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGNING_ALLOWED: NO
+
+schemes:
+  HalvorApp-macOS:
+    build:
+      targets:
+        HalvorApp-macOS: all
+    run:
+      config: Debug
+  HalvorApp-iOS:
+    build:
+      targets:
+        HalvorApp-iOS: all
+    run:
+      config: Debug
+      destination: platform=iOS Simulator,name=iPhone 17

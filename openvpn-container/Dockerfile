@@ -1,4 +1,4 @@
-FROM alpine:3.19
+FROM alpine:3.23
 
 # Install OpenVPN, Privoxy and required tools
 # Using --update to refresh package index, with retry for multi-platform builds

@@ -5,16 +5,17 @@ use std::net::{TcpListener, TcpStream};
 
 /// Halvor Agent Server
 /// Runs as a daemon on each host to enable secure remote execution and config sync
+#[derive(Clone)]
 pub struct AgentServer {
     port: u16,
-    secret: Option<String>,
+    _secret: Option<String>,
 }
 
 impl Default for AgentServer {
     fn default() -> Self {
         Self {
-            port: 23500,
-            secret: None,
+            port: 13001, // Agent port (web server runs on 13000)
+            _secret: None,
         }
     }
 }
@@ -59,30 +60,139 @@ pub struct HostInfo {
 }
 
 impl AgentServer {
-    pub fn new(port: u16, secret: Option<String>) -> Self {
-        Self { port, secret }
+    pub fn new(port: u16, _secret: Option<String>) -> Self {
+        Self { port, _secret }
     }
 
     /// Start the agent server
     pub fn start(&self) -> Result<()> {
-        let addr = format_bind_address(self.port);
-        let listener =
-            TcpListener::bind(&addr).with_context(|| format!("Failed to bind to {}", addr))?;
+        #[cfg(feature = "web-server")]
+        {
+            // Start both agent TCP server and web HTTP server
+            use std::net::SocketAddr;
+            use std::path::PathBuf;
 
-        println!("Halvor agent listening on port {}", self.port);
+            // Determine web server port (13000 for main site)
+            let web_port = 13000;
 
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    if let Err(e) = self.handle_connection(stream) {
-                        eprintln!("Error handling connection: {}", e);
+            // Determine static directory for web server
+            let web_dir = PathBuf::from("halvor-web");
+            let static_dir = if web_dir.join("build").exists() {
+                web_dir.join("build")
+            } else {
+                web_dir.clone()
+            };
+
+            println!("Halvor agent starting...");
+            println!("  - Agent TCP server: port {}", self.port);
+            println!("  - Web HTTP server: port {}", web_port);
+
+            // Create tokio runtime
+            let rt = tokio::runtime::Runtime::new().context("Failed to create tokio runtime")?;
+
+            rt.block_on(async {
+                // Spawn web server in background
+                let web_addr = SocketAddr::from(([0, 0, 0, 0], web_port));
+                let static_dir_clone = static_dir.clone();
+                let agent_port = self.port;
+
+                tokio::spawn(async move {
+                    #[cfg(feature = "web-server")]
+                    {
+                        use crate::services::web;
+                        if let Err(e) =
+                            web::start_server(web_addr, static_dir_clone, Some(agent_port)).await
+                        {
+                            eprintln!("Web server error: {}", e);
+                        }
+                    }
+                });
+
+                // Start agent TCP server (blocking, but in async context)
+                let addr = format_bind_address(agent_port);
+                let listener = tokio::net::TcpListener::bind(&addr)
+                    .await
+                    .with_context(|| format!("Failed to bind to {}", addr))?;
+
+                println!("Halvor agent listening on port {}", agent_port);
+                println!("Web server available at http://0.0.0.0:{}", web_port);
+
+                loop {
+                    match listener.accept().await {
+                        Ok((stream, _)) => {
+                            let server = self.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = server.handle_connection_async(stream).await {
+                                    eprintln!("Error handling connection: {}", e);
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            eprintln!("Error accepting connection: {}", e);
+                        }
                     }
                 }
-                Err(e) => {
-                    eprintln!("Error accepting connection: {}", e);
+            })
+        }
+
+        #[cfg(not(feature = "web-server"))]
+        {
+            // Fallback: just start agent server without web server
+            let addr = format_bind_address(self.port);
+            let listener =
+                TcpListener::bind(&addr).with_context(|| format!("Failed to bind to {}", addr))?;
+
+            println!("Halvor agent listening on port {}", self.port);
+
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => {
+                        if let Err(e) = self.handle_connection(stream) {
+                            eprintln!("Error handling connection: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error accepting connection: {}", e);
+                    }
                 }
             }
+
+            Ok(())
         }
+    }
+
+    #[cfg(feature = "web-server")]
+    async fn handle_connection_async(&self, mut stream: tokio::net::TcpStream) -> Result<()> {
+        use crate::utils::read_json;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Read request
+        let mut buffer = vec![0u8; 4096];
+        let n = stream.read(&mut buffer).await?;
+        buffer.truncate(n);
+
+        let request: AgentRequest =
+            serde_json::from_slice(&buffer).context("Failed to parse request")?;
+
+        // Handle request
+        let response = match request {
+            AgentRequest::Ping => AgentResponse::Pong,
+            AgentRequest::GetHostInfo => self.get_host_info()?,
+            AgentRequest::ExecuteCommand {
+                command,
+                args,
+                token,
+            } => self.execute_command(&command, &args, &token)?,
+            AgentRequest::SyncConfig { data } => self.sync_config(data)?,
+            AgentRequest::SyncDatabase {
+                from_hostname,
+                last_sync,
+            } => self.sync_database(&from_hostname, last_sync)?,
+        };
+
+        // Send response
+        let response_json = serde_json::to_vec(&response)?;
+        stream.write_all(&response_json).await?;
 
         Ok(())
     }
@@ -208,14 +318,14 @@ impl AgentServer {
 
     fn sync_database(&self, from_hostname: &str, _last_sync: Option<i64>) -> Result<AgentResponse> {
         use crate::db;
-        
+
         // Export host configs and settings for this host
         let local_hostname = std::env::var("HOSTNAME")
             .or_else(|_| std::fs::read_to_string("/etc/hostname"))
             .unwrap_or_else(|_| "unknown".to_string())
             .trim()
             .to_string();
-        
+
         // Get all hosts from DB
         let hosts = db::list_hosts().unwrap_or_default();
         let mut host_configs = std::collections::HashMap::new();
@@ -224,7 +334,7 @@ impl AgentServer {
                 host_configs.insert(hostname.clone(), config);
             }
         }
-        
+
         // Get settings
         use crate::db::generated::settings;
         let mut db_settings = std::collections::HashMap::new();
@@ -235,7 +345,7 @@ impl AgentServer {
                 }
             }
         }
-        
+
         // Serialize sync data
         let sync_data = serde_json::json!({
             "from_hostname": from_hostname,
@@ -243,11 +353,9 @@ impl AgentServer {
             "hosts": host_configs,
             "settings": db_settings,
         });
-        
+
         let data_str = serde_json::to_string(&sync_data)?;
-        
-        Ok(AgentResponse::Success {
-            output: data_str,
-        })
+
+        Ok(AgentResponse::Success { output: data_str })
     }
 }

@@ -21,3 +21,19 @@ tmp/
 .secrets/
 openvpn/
 vpn-container/openvpn/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+*.ipa
+*.dSYM.zip
+*.app.dSYM.zip
+fastlane/match_output
+AppleWWDRCAG3.cer
+halvor-swift/halvor-ffi-macro/target
+halvor-ffi-macro/target
+halvor-swift/build
+halvor-web/node_modules
+halvor-web/.svelte-kit

@@ -1,340 +1,271 @@
-.PHONY: install uninstall dev build clean setup-dev build-linux build-macos build-windows build-vpn build-all help setup-linux-cross-compile build-linux-target format
+
+# Installation and setup
+.PHONY: install install-rust install-rust-targets install-rust-deps install-swift install-swift-deps install-android install-android-deps install-web install-web-deps install-tools help
 
 # Default target
 help:
-	@echo "Available targets:"
-	@echo "  make build          - Build for current platform (release)"
-	@echo "  make build linux    - Build all Linux targets"
-	@echo "  make build macos    - Build all macOS targets"
-	@echo "  make build windows  - Build Windows target"
-	@echo "  make build vpn      - Build VPN Docker container"
-	@echo "  make build all      - Build all CLI targets"
+	@echo "Halvor Multi-Platform Build System"
 	@echo ""
-	@echo "Alternative syntax:"
-	@echo "  make build-linux    - Build all Linux targets"
-	@echo "  make build-macos    - Build all macOS targets"
-	@echo "  make build-windows - Build Windows target"
-	@echo "  make build-vpn     - Build VPN Docker container"
-	@echo "  make build-all     - Build all CLI targets"
+	@echo "Installation:"
+	@echo "  make install              - Install all dependencies (Rust, Swift, Android, Web)"
+	@echo "  make install-rust         - Install Rust toolchain"
+	@echo "  make install-rust-targets - Install all Rust cross-compilation targets"
+	@echo "  make install-swift        - Install Swift/Xcode dependencies"
+	@echo "  make install-android      - Install Android dependencies"
+	@echo "  make install-web          - Install Web dependencies (Node.js, wasm-pack)"
+	@echo "  make install-tools         - Install development tools (Docker, Fastlane)"
+	@echo "  make install-cli          - Build and install CLI to system"
 	@echo ""
-	@echo "Other targets:"
-	@echo "  make install        - Install halvor globally"
-	@echo "  make uninstall      - Remove halvor from the system"
-	@echo "  make dev            - Start development mode (watch)"
-	@echo "  make clean          - Clean build artifacts"
-	@echo "  make format         - Format code (Rust with rustfmt, TS/JS with prettier)"
+	@echo "Build targets (use 'halvor build' commands):"
+	@echo "  halvor build ios          - Build iOS Swift app"
+	@echo "  halvor build mac          - Build macOS Swift app"
+	@echo "  halvor build android      - Build Android library and app"
+	@echo "  halvor build web          - Build WASM module and web app"
+	@echo ""
+	@echo "Development (use 'halvor dev' commands):"
+	@echo "  halvor dev mac            - macOS development with hot reload"
+	@echo "  halvor dev ios            - iOS development with simulator"
+	@echo "  halvor dev web            - Web development with hot reload (Docker)"
+	@echo "  halvor dev web --bare-metal - Web development (Rust server + Svelte dev)"
+	@echo "  halvor dev web --prod     - Web production mode (Docker)"
+	@echo "  halvor dev cli            - CLI development mode with watch (auto-rebuild on changes)"
 
-# Install halvor globally
-install:
-	cargo install --path . --force
 
-# Uninstall halvor from the system
-uninstall:
-	@echo "Uninstalling halvor..."
-	@BINARY_FOUND=0; \
-	BACKUP_FOUND=0; \
-	if [ -f "$$HOME/.cargo/bin/halvor" ]; then \
-		echo "Removing $$HOME/.cargo/bin/halvor"; \
-		rm -f "$$HOME/.cargo/bin/halvor"; \
-		BINARY_FOUND=1; \
-	fi; \
-	if [ -f "/usr/local/bin/halvor" ]; then \
-		echo "Removing /usr/local/bin/halvor (requires sudo)"; \
-		sudo rm -f /usr/local/bin/halvor; \
-		BINARY_FOUND=1; \
-	fi; \
-	if [ -f "$$HOME/.local/bin/halvor" ]; then \
-		echo "Removing $$HOME/.local/bin/halvor"; \
-		rm -f "$$HOME/.local/bin/halvor"; \
-		BINARY_FOUND=1; \
-	fi; \
-	if [ -f "/usr/bin/halvor" ]; then \
-		echo "Removing /usr/bin/halvor (requires sudo)"; \
-		sudo rm -f /usr/bin/halvor; \
-		BINARY_FOUND=1; \
-	fi; \
-	for backup in "$$HOME/.cargo/bin/halvor"*.bak "/usr/local/bin/halvor"*.bak "$$HOME/.local/bin/halvor"*.bak "/usr/bin/halvor"*.bak; do \
-		if [ -f "$$backup" ]; then \
-			echo "Removing backup file: $$backup"; \
-			rm -f "$$backup"; \
-			BACKUP_FOUND=1; \
-		fi; \
-	done; \
-	if [ $$BINARY_FOUND -eq 0 ] && [ $$BACKUP_FOUND -eq 0 ]; then \
-		echo "No halvor binary or backup files found to remove."; \
-		echo "Checked locations:"; \
-		echo "  - $$HOME/.cargo/bin/halvor"; \
-		echo "  - /usr/local/bin/halvor"; \
-		echo "  - $$HOME/.local/bin/halvor"; \
-		echo "  - /usr/bin/halvor"; \
-		echo "✓ halvor is not installed (or already removed)"; \
-	else \
-		echo "✓ hal uninstalled successfully"; \
-	fi
+# Main install target - installs all dependencies
+install: install-rust install-rust-targets install-rust-deps install-swift install-swift-deps install-android install-android-deps install-web install-web-deps install-tools
+	@echo ""
+	@echo "✓ All dependencies installed!"
+	@echo "You can now run: halvor build ios, halvor build mac, halvor build android, or halvor build web"
 
-# Setup development dependencies
-setup-dev:
-	@echo "Installing cargo-watch for development..."
-	cargo install cargo-watch
+# Install CLI to system
+.PHONY: install-cli
+install-cli:
+	@echo "Building and installing CLI to system..."
+	@cargo build --release --bin halvor
+	@cargo install --path . --bin halvor --force
+	@echo "✓ CLI installed to system (available as 'halvor')"
 
-# Development mode: watch for changes and auto-install
-dev: setup-dev
-	@echo "Starting development mode..."
-	@echo "Watching for changes and auto-installing..."
-	@echo "Press Ctrl+C to stop"
-	cargo watch -x 'install --path . --force'
-
-# Build the binary for current platform
-# When used with platform targets, skip default build
-build:
-	@# Check if any platform-specific targets are in the command line
-	@if echo "$(MAKECMDGOALS)" | grep -qE "(linux|macos|windows|vpn|pia-vpn|all)"; then \
-		: ; \
-	else \
-		if ! command -v cargo >/dev/null 2>&1; then \
-			echo "Cargo not found. Installing Rust..."; \
-			curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable; \
-		fi; \
-		if ! command -v cc >/dev/null 2>&1 && ! command -v gcc >/dev/null 2>&1; then \
-			echo "C compiler not found. Installing build dependencies..."; \
-			if command -v apt-get >/dev/null 2>&1; then \
-				if sudo -n apt-get update >/dev/null 2>&1; then \
-					sudo apt-get install -y build-essential; \
-				else \
-					echo "Error: Passwordless sudo required to install build-essential"; \
-					echo "Run: sudo apt-get update && sudo apt-get install -y build-essential"; \
-					exit 1; \
-				fi; \
-			elif command -v yum >/dev/null 2>&1; then \
-				if sudo -n yum list installed gcc >/dev/null 2>&1; then \
-					sudo yum install -y gcc gcc-c++ make; \
-				else \
-					echo "Error: Passwordless sudo required to install gcc"; \
-					echo "Run: sudo yum install -y gcc gcc-c++ make"; \
-					exit 1; \
-				fi; \
-			elif command -v dnf >/dev/null 2>&1; then \
-				if sudo -n dnf list installed gcc >/dev/null 2>&1; then \
-					sudo dnf install -y gcc gcc-c++ make; \
-				else \
-					echo "Error: Passwordless sudo required to install gcc"; \
-					echo "Run: sudo dnf install -y gcc gcc-c++ make"; \
-					exit 1; \
-				fi; \
-			fi; \
-		fi; \
-		export PATH="$$HOME/.cargo/bin:$$PATH" && cargo build --release; \
-	fi
-
-# Detect host platform
-HOST_OS := $(shell uname -s)
-HOST_ARCH := $(shell uname -m)
-
-# Build all Linux targets
-build-linux:
+# Install Rust toolchain
+install-rust:
+	@echo "Installing Rust toolchain..."
 	@if ! command -v cargo >/dev/null 2>&1; then \
-		echo "Cargo not found. Installing Rust..."; \
+		echo "Rust not found. Installing via rustup..."; \
 		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable; \
 		. $$HOME/.cargo/env && cargo --version; \
+		echo "✓ Rust installed"; \
+	else \
+		echo "✓ Rust already installed: $$(cargo --version)"; \
 	fi
-	@. $$HOME/.cargo/env 2>/dev/null || true; \
-	echo "Building Linux targets..."; \
-	echo "Host platform: $(HOST_OS) $(HOST_ARCH)"; \
-	if [ "$(HOST_OS)" = "Darwin" ]; then \
-		echo "Detected macOS host - setting up cross-compilation..."; \
-		$(MAKE) setup-linux-cross-compile; \
-	fi; \
-	echo "Building x86_64-unknown-linux-gnu..."; \
-	$(MAKE) build-linux-target TARGET=x86_64-unknown-linux-gnu; \
-	echo "Building x86_64-unknown-linux-musl..."; \
-	$(MAKE) build-linux-target TARGET=x86_64-unknown-linux-musl; \
-	echo "Building aarch64-unknown-linux-gnu..."; \
-	$(MAKE) build-linux-target TARGET=aarch64-unknown-linux-gnu; \
-	echo "✓ All Linux builds complete"
 
-# Setup cross-compilation tools for Linux on macOS
-setup-linux-cross-compile:
-	@echo "Checking cross-compilation toolchains..."
-	@echo "Note: Cross-compiling from macOS to Linux can be complex."
-	@echo "For reliable builds, consider using Docker or building on a Linux host."
-	@echo ""
-	@if ! rustup target list --installed | grep -q "x86_64-unknown-linux-gnu"; then \
-		echo "Installing Rust target: x86_64-unknown-linux-gnu..."; \
-		rustup target add x86_64-unknown-linux-gnu; \
-	fi
-	@if ! rustup target list --installed | grep -q "x86_64-unknown-linux-musl"; then \
-		echo "Installing Rust target: x86_64-unknown-linux-musl..."; \
-		rustup target add x86_64-unknown-linux-musl; \
-	fi
-	@if ! rustup target list --installed | grep -q "aarch64-unknown-linux-gnu"; then \
-		echo "Installing Rust target: aarch64-unknown-linux-gnu..."; \
-		rustup target add aarch64-unknown-linux-gnu; \
-	fi
-	@echo ""
-	@echo "Checking for cargo-zigbuild..."
-	@if ! command -v cargo-zigbuild >/dev/null 2>&1; then \
-		echo "cargo-zigbuild not found. Installing..."; \
-		cargo install cargo-zigbuild || echo "Failed to install cargo-zigbuild. You may need to install it manually: cargo install cargo-zigbuild"; \
-	fi
-	@echo "Checking for zig (required by cargo-zigbuild)..."
-	@if ! command -v zig >/dev/null 2>&1; then \
-		echo "zig not found. Attempting to install..."; \
+# Install all required Rust targets
+install-rust-targets: install-rust
+	@echo "Installing Rust targets for all platforms..."
+	@. $$HOME/.cargo/env 2>/dev/null || true; \
+	echo "Installing macOS targets..."; \
+	rustup target add aarch64-apple-darwin || true; \
+	rustup target add x86_64-apple-darwin || true; \
+	echo "Installing iOS targets..."; \
+	rustup target add aarch64-apple-ios || true; \
+	rustup target add aarch64-apple-ios-sim || true; \
+	rustup target add x86_64-apple-ios || true; \
+	echo "Installing Android targets..."; \
+	rustup target add aarch64-linux-android || true; \
+	rustup target add armv7-linux-androideabi || true; \
+	rustup target add i686-linux-android || true; \
+	rustup target add x86_64-linux-android || true; \
+	echo "Installing WASM target..."; \
+	rustup target add wasm32-unknown-unknown || true; \
+	echo "✓ All Rust targets installed"
+
+# Install Rust crate dependencies
+install-rust-deps: install-rust
+	@echo "Installing Rust crate dependencies..."
+	@. $$HOME/.cargo/env 2>/dev/null || true; \
+	echo "Fetching dependencies for main crate..."; \
+	cargo fetch || echo "⚠️  Failed to fetch main crate dependencies"; \
+	if [ -d "halvor-swift/halvor-ffi" ]; then \
+		echo "Fetching dependencies for halvor-ffi..."; \
+		cd halvor-swift/halvor-ffi && cargo fetch || echo "⚠️  Failed to fetch halvor-ffi dependencies"; \
+	fi; \
+	if [ -d "halvor-swift/halvor-ffi-macro" ]; then \
+		echo "Fetching dependencies for halvor-ffi-macro..."; \
+		cd halvor-swift/halvor-ffi-macro && cargo fetch || echo "⚠️  Failed to fetch halvor-ffi-macro dependencies"; \
+	fi; \
+	if [ -d "halvor-swift/halvor-ffi-jni" ]; then \
+		echo "Fetching dependencies for halvor-ffi-jni..."; \
+		cd halvor-swift/halvor-ffi-jni && cargo fetch || echo "⚠️  Failed to fetch halvor-ffi-jni dependencies"; \
+	fi; \
+	if [ -d "halvor-swift/halvor-ffi-wasm" ]; then \
+		echo "Fetching dependencies for halvor-ffi-wasm..."; \
+		cd halvor-swift/halvor-ffi-wasm && cargo fetch || echo "⚠️  Failed to fetch halvor-ffi-wasm dependencies"; \
+	fi; \
+	echo "✓ Rust dependencies installed"
+
+# Install Swift/Xcode dependencies
+install-swift:
+	@echo "Checking Swift/Xcode dependencies..."
+	@if ! command -v swift >/dev/null 2>&1; then \
+		echo "⚠️  Swift not found. Please install Xcode from the App Store."; \
+		echo "   After installing, run: sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer"; \
+	else \
+		echo "✓ Swift installed: $$(swift --version | head -1)"; \
+	fi; \
+	if ! command -v xcodegen >/dev/null 2>&1; then \
+		echo "Installing xcodegen..."; \
 		if command -v brew >/dev/null 2>&1; then \
-			echo "Installing zig via Homebrew..."; \
-			brew install zig || echo "Failed to install zig via Homebrew. You may need to install it manually: brew install zig"; \
+			brew install xcodegen || echo "⚠️  Failed to install xcodegen. Install manually: brew install xcodegen"; \
 		else \
-			echo "Homebrew not found. Please install zig manually:"; \
-			echo "  macOS: brew install zig"; \
-			echo "  Linux: See https://ziglang.org/download/"; \
+			echo "⚠️  Homebrew not found. Install xcodegen manually: brew install xcodegen"; \
 		fi; \
+	else \
+		echo "✓ xcodegen installed"; \
+	fi; \
+	if ! command -v cargo-watch >/dev/null 2>&1; then \
+		echo "Installing cargo-watch..."; \
+		. $$HOME/.cargo/env 2>/dev/null || true; \
+		cargo install cargo-watch || echo "⚠️  Failed to install cargo-watch"; \
+	else \
+		echo "✓ cargo-watch installed"; \
 	fi
 
-# Build a specific Linux target with proper cross-compilation setup
-build-linux-target:
-	@. $$HOME/.cargo/env 2>/dev/null || true; \
-	if [ "$(HOST_OS)" = "Darwin" ]; then \
-		echo "Cross-compiling from macOS to $(TARGET)..."; \
-		unset MACOSX_DEPLOYMENT_TARGET || true; \
-		if [ "$(TARGET)" = "x86_64-unknown-linux-gnu" ]; then \
-			if ! command -v cargo-zigbuild >/dev/null 2>&1; then \
-				echo "cargo-zigbuild not found. Installing..."; \
-				cargo install cargo-zigbuild || (echo "Failed to install cargo-zigbuild. Please install manually: cargo install cargo-zigbuild" && exit 1); \
-			fi; \
-			if ! command -v zig >/dev/null 2>&1; then \
-				echo "zig not found. Installing zig..."; \
-				if command -v brew >/dev/null 2>&1; then \
-					brew install zig || (echo "Failed to install zig. Please install manually: brew install zig" && exit 1); \
-				else \
-					echo "Homebrew not found. Please install zig manually: brew install zig"; \
-					exit 1; \
-				fi; \
-			fi; \
-			echo "Using cargo-zigbuild for cross-compilation..."; \
-			cargo zigbuild --release --target $(TARGET); \
-		elif [ "$(TARGET)" = "x86_64-unknown-linux-musl" ]; then \
-			if ! command -v cargo-zigbuild >/dev/null 2>&1; then \
-				echo "cargo-zigbuild not found. Installing..."; \
-				cargo install cargo-zigbuild || (echo "Failed to install cargo-zigbuild. Please install manually: cargo install cargo-zigbuild" && exit 1); \
-			fi; \
-			if ! command -v zig >/dev/null 2>&1; then \
-				echo "zig not found. Installing zig..."; \
-				if command -v brew >/dev/null 2>&1; then \
-					brew install zig || (echo "Failed to install zig. Please install manually: brew install zig" && exit 1); \
-				else \
-					echo "Homebrew not found. Please install zig manually: brew install zig"; \
-					exit 1; \
-				fi; \
-			fi; \
-			echo "Using cargo-zigbuild for cross-compilation..."; \
-			cargo zigbuild --release --target $(TARGET); \
-		elif [ "$(TARGET)" = "aarch64-unknown-linux-gnu" ]; then \
-			if ! command -v cargo-zigbuild >/dev/null 2>&1; then \
-				echo "cargo-zigbuild not found. Installing..."; \
-				cargo install cargo-zigbuild || (echo "Failed to install cargo-zigbuild. Please install manually: cargo install cargo-zigbuild" && exit 1); \
-			fi; \
-			if ! command -v zig >/dev/null 2>&1; then \
-				echo "zig not found. Installing zig..."; \
-				if command -v brew >/dev/null 2>&1; then \
-					brew install zig || (echo "Failed to install zig. Please install manually: brew install zig" && exit 1); \
-				else \
-					echo "Homebrew not found. Please install zig manually: brew install zig"; \
-					exit 1; \
-				fi; \
-			fi; \
-			echo "Using cargo-zigbuild for cross-compilation..."; \
-			cargo zigbuild --release --target $(TARGET); \
+# Install Swift package dependencies
+install-swift-deps: install-swift
+	@echo "Installing Swift package dependencies..."
+	@if [ -d "halvor-swift" ]; then \
+		cd halvor-swift && \
+		if command -v swift >/dev/null 2>&1; then \
+			echo "Resolving Swift package dependencies..."; \
+			swift package resolve || echo "⚠️  Failed to resolve Swift package dependencies"; \
+			echo "✓ Swift package dependencies resolved"; \
 		else \
-			echo "Unknown target: $(TARGET)"; \
-			exit 1; \
-		fi \
-	else \
-		echo "Building natively on Linux for $(TARGET)..."; \
-		cargo build --release --target $(TARGET); \
-	fi
-
-# Build all macOS targets
-build-macos:
-	@echo "Building macOS targets..."
-	@echo "Building x86_64-apple-darwin..."
-	@cargo build --release --target x86_64-apple-darwin
-	@echo "Building aarch64-apple-darwin..."
-	@cargo build --release --target aarch64-apple-darwin
-	@echo "✓ All macOS builds complete"
-
-# Build Windows target
-build-windows:
-	@if ! command -v cargo >/dev/null 2>&1; then \
-		echo "Cargo not found. Installing Rust..."; \
-		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable; \
-		. $$HOME/.cargo/env && cargo --version; \
-	fi
-	@. $$HOME/.cargo/env 2>/dev/null || true; \
-	echo "Building Windows target..."; \
-	if ! rustup target list --installed | grep -q "x86_64-pc-windows-msvc"; then \
-		echo "Installing Rust target: x86_64-pc-windows-msvc..."; \
-		rustup target add x86_64-pc-windows-msvc; \
-	fi
-	@if [ "$(HOST_OS)" = "Darwin" ] || [ "$(HOST_OS)" = "Linux" ]; then \
-		echo "Cross-compiling from $(HOST_OS) to Windows..."; \
-		if ! command -v cargo-xwin >/dev/null 2>&1; then \
-			echo "cargo-xwin not found. Installing..."; \
-			cargo install cargo-xwin || (echo "Failed to install cargo-xwin. Please install manually: cargo install cargo-xwin" && exit 1); \
+			echo "⚠️  Swift not found, skipping Swift package resolution"; \
 		fi; \
-		if ! rustup component list --installed | grep -q "llvm-tools-preview"; then \
-			echo "Installing llvm-tools-preview component..."; \
-			rustup component add llvm-tools-preview; \
+	fi
+
+# Install Android dependencies
+install-android:
+	@echo "Checking Android dependencies..."
+	@if [ -z "$$ANDROID_NDK_HOME" ] && [ -z "$$ANDROID_NDK_ROOT" ]; then \
+		echo "⚠️  Android NDK not found. Please set ANDROID_NDK_HOME or ANDROID_NDK_ROOT"; \
+		echo "   Install via Android Studio SDK Manager or download from:"; \
+		echo "   https://developer.android.com/ndk/downloads"; \
+	else \
+		echo "✓ Android NDK found: $$ANDROID_NDK_HOME$$ANDROID_NDK_ROOT"; \
+	fi; \
+	if ! command -v java >/dev/null 2>&1; then \
+		echo "⚠️  Java not found. Android builds require Java 17+"; \
+		echo "   Install via: brew install openjdk@17 (macOS) or your package manager"; \
+	else \
+		echo "✓ Java installed: $$(java -version 2>&1 | head -1)"; \
+	fi; \
+	if [ -d "halvor-android" ]; then \
+		echo "Checking Gradle wrapper..."; \
+		cd halvor-android && chmod +x gradlew 2>/dev/null || true; \
+	fi
+
+# Install Android Gradle dependencies
+install-android-deps: install-android
+	@echo "Installing Android Gradle dependencies..."
+	@if [ -d "halvor-android" ]; then \
+		cd halvor-android && \
+		if [ -f "gradlew" ]; then \
+			echo "Downloading Gradle and dependencies..."; \
+			chmod +x gradlew && \
+			./gradlew --no-daemon tasks --all >/dev/null 2>&1 || ./gradlew --no-daemon build --dry-run || echo "⚠️  Failed to download Gradle dependencies"; \
+			echo "✓ Android Gradle dependencies installed"; \
+		else \
+			echo "⚠️  Gradle wrapper not found in halvor-android"; \
 		fi; \
-		echo "Building x86_64-pc-windows-msvc using cargo-xwin..."; \
-		cargo xwin build --release --target x86_64-pc-windows-msvc; \
+	fi
+
+# Install Web dependencies
+install-web: install-rust
+	@echo "Installing Web dependencies..."
+	@if ! command -v node >/dev/null 2>&1; then \
+		echo "⚠️  Node.js not found. Installing via Homebrew..."; \
+		if command -v brew >/dev/null 2>&1; then \
+			brew install node || echo "⚠️  Failed to install Node.js. Install manually: brew install node"; \
+		else \
+			echo "⚠️  Homebrew not found. Install Node.js manually from: https://nodejs.org/"; \
+		fi; \
 	else \
-		echo "Building x86_64-pc-windows-msvc natively..."; \
-		cargo build --release --target x86_64-pc-windows-msvc; \
-	fi
-	@echo "✓ Windows build complete"
-
-# Build VPN Docker container
-build-vpn:
-	@echo "Building VPN Docker container..."
-	@if [ ! -d "openvpn-container" ]; then \
-		echo "Error: openvpn-container directory not found"; \
-		exit 1; \
-	fi
-	@cd openvpn-container && docker build -t vpn:latest -f Dockerfile .
-	@echo "✓ VPN container built successfully"
-	@echo "  Image: vpn:latest"
-
-# Alias for build-vpn (pia-vpn)
-build-pia-vpn: build-vpn
-
-# Build all CLI targets (Linux, macOS, Windows)
-build-all: build-linux build-macos build-windows
-	@echo "✓ All CLI builds complete"
-
-# Handle "make build <target>" syntax
-# When user runs "make build linux", Make executes both "build" and "linux"
-# We make these targets call the actual build targets
-linux: build-linux
-macos: build-macos
-windows: build-windows
-vpn: build-vpn
-pia-vpn: build-vpn
-all: build-all
-
-# Clean build artifacts
-clean:
-	cargo clean
-	@echo "✓ Build artifacts cleaned"
-
-# Format code
-format:
-	@echo "Formatting code..."
-	@echo "Formatting Rust code with rustfmt..."
-	@cargo fmt || (echo "Warning: cargo fmt failed. Make sure Rust is installed." && exit 0)
-	@if command -v prettier >/dev/null 2>&1; then \
-		echo "Formatting TypeScript/JavaScript with prettier..."; \
-		prettier --write "**/*.{ts,tsx,js,jsx,json,md,yml,yaml}" --ignore-path .gitignore || true; \
+		echo "✓ Node.js installed: $$(node --version)"; \
+	fi; \
+	if ! command -v npm >/dev/null 2>&1; then \
+		echo "⚠️  npm not found. This should come with Node.js."; \
 	else \
-		echo "Note: prettier not found. Install with: npm install -g prettier"; \
-		echo "Skipping TypeScript/JavaScript formatting..."; \
+		echo "✓ npm installed: $$(npm --version)"; \
+		echo "✓ npm installed: $$(npm --version)"; \
+	fi; \
+	if ! command -v wasm-pack >/dev/null 2>&1; then \
+		echo "Installing wasm-pack..."; \
+		. $$HOME/.cargo/env 2>/dev/null || true; \
+		cargo install wasm-pack || echo "⚠️  Failed to install wasm-pack"; \
+	else \
+		echo "✓ wasm-pack installed: $$(wasm-pack --version)"; \
 	fi
-	@echo "✓ Code formatting complete"
+
+# Install npm/web dependencies
+install-web-deps: install-web
+	@echo "Installing npm dependencies for web app..."
+	@if [ -d "halvor-web" ]; then \
+		cd halvor-web && \
+		if command -v npm >/dev/null 2>&1; then \
+			echo "Running npm install..."; \
+			npm install || echo "⚠️  Failed to install npm dependencies"; \
+			echo "Running svelte-kit sync to initialize SvelteKit..."; \
+			npx svelte-kit sync || echo "⚠️  Failed to run svelte-kit sync"; \
+			echo "✓ npm dependencies installed"; \
+		else \
+			echo "⚠️  npm not found, skipping npm install"; \
+		fi; \
+	fi
+
+# Install development tools
+install-tools:
+	@echo "Installing development tools..."
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo "⚠️  Docker not found. Install from: https://www.docker.com/products/docker-desktop"; \
+	else \
+		echo "✓ Docker installed: $$(docker --version)"; \
+	fi; \
+	if ! command -v direnv >/dev/null 2>&1; then \
+		echo "Installing direnv..."; \
+		if command -v brew >/dev/null 2>&1; then \
+			brew install direnv || echo "⚠️  Failed to install direnv. Install manually: brew install direnv"; \
+		else \
+			echo "⚠️  Homebrew not found. Install direnv manually: brew install direnv"; \
+		fi; \
+		if [ -f "$$HOME/.zshrc" ] && ! grep -q "direnv hook zsh" "$$HOME/.zshrc"; then \
+			echo "Adding direnv hook to .zshrc..."; \
+			echo 'eval "$$(direnv hook zsh)"' >> "$$HOME/.zshrc"; \
+			echo "✓ direnv hook added to .zshrc (restart your shell or run: source ~/.zshrc)"; \
+		elif [ -f "$$HOME/.bashrc" ] && ! grep -q "direnv hook bash" "$$HOME/.bashrc"; then \
+			echo "Adding direnv hook to .bashrc..."; \
+			echo 'eval "$$(direnv hook bash)"' >> "$$HOME/.bashrc"; \
+			echo "✓ direnv hook added to .bashrc (restart your shell or run: source ~/.bashrc)"; \
+		fi; \
+	else \
+		echo "✓ direnv installed: $$(direnv --version)"; \
+	fi; \
+	if ! command -v op >/dev/null 2>&1; then \
+		echo "Installing 1Password CLI..."; \
+		if command -v brew >/dev/null 2>&1; then \
+			brew install --cask 1password-cli || echo "⚠️  Failed to install 1Password CLI. Install manually: brew install --cask 1password-cli"; \
+		else \
+			echo "⚠️  Homebrew not found. Install 1Password CLI manually: brew install --cask 1password-cli"; \
+		fi; \
+	else \
+		echo "✓ 1Password CLI installed: $$(op --version)"; \
+	fi; \
+	if ! command -v fastlane >/dev/null 2>&1 && [ -d "fastlane" ]; then \
+		echo "Installing Fastlane..."; \
+		if command -v gem >/dev/null 2>&1; then \
+			gem install fastlane || echo "⚠️  Failed to install Fastlane"; \
+		else \
+			echo "⚠️  Ruby/gem not found. Install Fastlane manually: gem install fastlane"; \
+		fi; \
+	else \
+		echo "✓ Fastlane installed (or not needed)"; \
+	fi; \
+	echo "✓ Development tools check complete"

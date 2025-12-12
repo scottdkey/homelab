@@ -1,0 +1,543 @@
+# Fastfile for Halvor Swift Bridge
+# Fastlane configuration for iOS and macOS app deployment
+# See: https://docs.fastlane.tools/
+
+default_platform(:ios)
+
+# Get project root directory (parent of fastlane directory)
+# Fastfile is in fastlane/, so we go up one level
+def project_root
+  File.expand_path(File.join(File.dirname(__FILE__), ".."))
+end
+
+# Get team_id from Matchfile or environment
+def get_team_id
+  # Try to read from Matchfile (it's a Ruby file, so we can evaluate it)
+  begin
+    matchfile_path = File.join(File.dirname(__FILE__), "Matchfile")
+    if File.exist?(matchfile_path)
+      matchfile_content = File.read(matchfile_path)
+      if matchfile_content =~ /team_id\(["']([^"']+)["']\)/
+        return $1
+      end
+    end
+  rescue => ex
+    # Fall through to environment variable or default
+  end
+  
+  # Fall back to environment variable or default from Matchfile
+  ENV["FASTLANE_TEAM_ID"] || "3G798JDTL3"
+end
+
+platform :ios do
+  desc "Download certificates and provisioning profiles for iOS"
+  lane :sync_certificates do
+    # Skip provisioning profiles to avoid bundle identifier requirement
+    # We only need certificates for signing the XCFramework
+    match(
+      type: "development",
+      readonly: false,
+      skip_provisioning_profiles: true
+    )
+    match(
+      type: "appstore",
+      readonly: false,
+      skip_provisioning_profiles: true
+    )
+  end
+
+  desc "Download certificates in readonly mode (for CI/CD)"
+  lane :sync_certificates_readonly do
+    match(
+      type: "development",
+      readonly: true,
+      skip_provisioning_profiles: true
+    )
+    match(
+      type: "appstore",
+      readonly: true,
+      skip_provisioning_profiles: true
+    )
+  end
+
+  desc "Build and sign iOS XCFramework"
+  lane :build_ios do
+    # Build Rust library for iOS
+    sh("cd halvor-swift/halvor-ffi && cargo build --lib --release --target aarch64-apple-ios")
+    sh("cd halvor-swift/halvor-ffi && cargo build --lib --release --target aarch64-apple-ios-sim")
+    
+    # Build XCFramework
+    sh("cd halvor-swift && ./build.sh")
+    
+    # Build Swift package
+    sh("cd halvor-swift && swift build")
+  end
+
+  desc "Build iOS app (Rust FFI + Xcode app)"
+  lane :ios_build_app do
+    swift_dir = File.join(project_root, "halvor-swift")
+    xcode_proj = File.join(swift_dir, "HalvorApp.xcodeproj")
+    
+    # Step 1: Build Rust FFI library
+    UI.header("Step 1/2: Building Rust FFI library")
+    build_script = File.join(swift_dir, "build.sh")
+    
+    unless File.exist?(build_script)
+      UI.user_error!("Build script not found: #{build_script}")
+    end
+    
+    sh("cd #{swift_dir} && bash build.sh ios")
+    
+    # Step 2: Create Xcode project if needed
+    unless File.directory?(xcode_proj)
+      UI.important("Xcode project not found. Creating it...")
+      create_script = File.join(swift_dir, "scripts/create-xcode-project.sh")
+      if File.exist?(create_script)
+        sh("cd #{swift_dir} && bash scripts/create-xcode-project.sh")
+      else
+        UI.user_error!("Xcode project not found and create script not available")
+      end
+    end
+    
+    # Step 3: Build iOS app with xcodebuild (disable automatic signing - we'll sign manually later)
+    UI.header("Step 2/2: Building iOS app with Xcode")
+    
+    # Disable automatic code signing during build - we'll sign manually with Fastlane after build
+    sh("cd #{swift_dir} && xcodebuild -project HalvorApp.xcodeproj -scheme HalvorApp-iOS -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGN_IDENTITY=\"\" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO")
+    
+    app_path = File.join(swift_dir, "build/Build/Products/Release-iphoneos/HalvorApp-iOS.app")
+    unless File.directory?(app_path)
+      UI.user_error!("iOS app not found at #{app_path} after build")
+    end
+    
+    UI.success("✓ iOS app built successfully")
+    UI.success("App location: #{app_path}")
+  end
+
+  desc "Sign iOS XCFramework"
+  lane :sign_ios do
+    # Check if certificates are already available
+    signing_identity_check = sh("security find-identity -v -p codesigning | grep -E '(Apple Development|iPhone Developer)' | head -1", log: false).strip
+    
+    # Only sync certificates if not found
+    if signing_identity_check.empty?
+      UI.important("No certificates found. Syncing via fastlane match...")
+      begin
+        match(
+          type: "development",
+          readonly: true,
+          skip_provisioning_profiles: true
+        )
+      rescue => ex
+        UI.important("Could not sync certificates in readonly mode: #{ex.message}")
+        UI.important("You may need to set MATCH_PASSWORD environment variable")
+        UI.important("Or run: fastlane ios sync_certificates")
+      end
+    else
+      UI.success("Certificates already available in Keychain")
+    end
+    
+    # Use path relative to project root
+    xcframework_path = File.join(project_root, "halvor-swift/Sources/HalvorSwiftFFI/HalvorSwiftFFI.xcframework")
+    
+    unless File.directory?(xcframework_path)
+      UI.user_error!("XCFramework not found at #{xcframework_path}. Run 'make build-ios' or 'fastlane ios build_ios' first")
+    end
+    
+    # Get signing identity
+    signing_identity = sh("security find-identity -v -p codesigning | grep -E '(Apple Development|iPhone Developer)' | head -1 | sed -E 's/.*\"([^\"]+)\".*/\\1/'", log: false).strip
+    
+    if signing_identity.empty?
+      UI.user_error!("No iOS signing certificate found. Run 'fastlane ios sync_certificates' first")
+    end
+    
+    UI.success("Found certificate: #{signing_identity}")
+    
+    # Sign the XCFramework (XCFrameworks don't need --deep)
+    sh("codesign --force --sign \"#{signing_identity}\" --timestamp \"#{xcframework_path}\"")
+    
+    # Verify signature
+    sh("codesign --verify --verbose \"#{xcframework_path}\"")
+    
+    UI.success("✓ iOS signing complete")
+  end
+
+  desc "Sign iOS app bundle"
+  lane :sign_app do
+    # Sync certificates and provisioning profiles using Fastlane Match (uses Matchfile configuration)
+    UI.important("Syncing certificates and provisioning profiles via Fastlane Match...")
+    begin
+      match(
+        type: "development",
+        readonly: true
+      )
+    rescue => ex
+      UI.important("Could not sync certificates in readonly mode: #{ex.message}")
+      UI.important("You may need to set MATCH_PASSWORD environment variable")
+      UI.important("Or run: fastlane ios sync_certificates")
+    end
+    
+    # Use path relative to project root
+    app_path = File.join(project_root, "halvor-swift/build/Build/Products/Release-iphoneos/HalvorApp-iOS.app")
+    
+    unless File.directory?(app_path)
+      UI.user_error!("iOS app not found at #{app_path}. Run 'halvor build ios' first")
+    end
+    
+    # Get signing identity (Fastlane Match should have installed it)
+    signing_identity = sh("security find-identity -v -p codesigning | grep -E '(Apple Development|iPhone Developer)' | head -1 | sed -E 's/.*\"([^\"]+)\".*/\\1/'", log: false).strip
+    
+    if signing_identity.empty?
+      UI.user_error!("No iOS signing certificate found. Run 'fastlane ios sync_certificates' first")
+    end
+    
+    UI.success("Found certificate: #{signing_identity}")
+    
+    # Find provisioning profile for the app (Fastlane Match should have installed it)
+    # Provisioning profiles are typically in ~/Library/MobileDevice/Provisioning Profiles/
+    provisioning_profiles_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
+    app_identifier = "dev.scottkey.halvor.ios"
+    
+    # Try to find a matching provisioning profile
+    provisioning_profile = nil
+    if File.directory?(provisioning_profiles_dir)
+      Dir.glob(File.join(provisioning_profiles_dir, "*.mobileprovision")).each do |profile_path|
+        # Check if profile matches our app identifier (simplified check)
+        profile_content = `security cms -D -i "#{profile_path}" 2>/dev/null`
+        if profile_content.include?(app_identifier)
+          provisioning_profile = profile_path
+          break
+        end
+      end
+    end
+    
+    if provisioning_profile
+      UI.success("Found provisioning profile: #{File.basename(provisioning_profile)}")
+      # Install provisioning profile into app bundle
+      sh("cp \"#{provisioning_profile}\" \"#{app_path}/embedded.mobileprovision\"")
+    else
+      UI.important("No provisioning profile found. Signing without embedded profile (may fail for device installation)")
+    end
+    
+    # Sign the app bundle with --deep to sign all nested code
+    sh("codesign --force --sign \"#{signing_identity}\" --deep --timestamp \"#{app_path}\"")
+    
+    # Verify signature
+    sh("codesign --verify --verbose --deep \"#{app_path}\"")
+    
+    UI.success("✓ iOS app signing complete")
+    UI.success("App location: #{app_path}")
+  end
+
+  desc "Upload iOS app to App Store Connect"
+  lane :ios_upload_to_app_store do
+    swift_dir = File.join(project_root, "halvor-swift")
+    
+    # Use IPA path from environment if provided, otherwise use default
+    ipa_path = ENV["IPA_PATH"] || File.join(swift_dir, "build/ipa/HalvorApp-iOS.ipa")
+    
+    # Convert to absolute path if relative
+    unless File.absolute_path?(ipa_path)
+      ipa_path = File.expand_path(ipa_path, project_root)
+    end
+    
+    unless File.exist?(ipa_path)
+      # If IPA doesn't exist, try to create it from the app bundle
+      app_path = File.join(swift_dir, "build/Build/Products/Release-iphoneos/HalvorApp-iOS.app")
+      
+      unless File.directory?(app_path)
+        UI.user_error!("iOS app not found at #{app_path}. Run 'halvor build ios' first")
+      end
+      
+      UI.important("IPA not found. Creating from app bundle...")
+      
+      # Create IPA directory structure
+      ipa_dir = File.join(swift_dir, "build/ipa")
+      FileUtils.mkdir_p(ipa_dir)
+      
+      payload_dir = File.join(ipa_dir, "Payload")
+      FileUtils.mkdir_p(payload_dir)
+      
+      # Copy app bundle to Payload
+      dest_app = File.join(payload_dir, "HalvorApp-iOS.app")
+      FileUtils.rm_rf(dest_app) if File.exist?(dest_app)
+      FileUtils.cp_r(app_path, dest_app)
+      
+      # Create IPA
+      sh("cd #{ipa_dir} && zip -r HalvorApp-iOS.ipa Payload")
+      
+      unless File.exist?(ipa_path)
+        UI.user_error!("Failed to create IPA at #{ipa_path}")
+      end
+      
+      UI.success("✓ IPA created: #{ipa_path}")
+    end
+    
+    # Upload to App Store Connect
+    UI.header("Uploading to App Store Connect...")
+    
+    # Debug: Show which credentials are available (without showing values)
+    UI.important("Checking for App Store Connect credentials...")
+    has_api_key_path = !ENV["APP_STORE_CONNECT_API_KEY_PATH"].to_s.empty?
+    has_api_key_id = !ENV["APP_STORE_CONNECT_API_KEY_ID"].to_s.empty?
+    has_api_issuer = !ENV["APP_STORE_CONNECT_API_ISSUER"].to_s.empty?
+    has_username = !ENV["FASTLANE_USER"].to_s.empty? || !ENV["APP_STORE_CONNECT_USERNAME"].to_s.empty?
+    has_password = !ENV["FASTLANE_PASSWORD"].to_s.empty? || !ENV["APP_STORE_CONNECT_PASSWORD"].to_s.empty?
+    
+    UI.important("API Key Path: #{has_api_key_path ? '✓' : '✗'}")
+    UI.important("API Key ID: #{has_api_key_id ? '✓' : '✗'}")
+    UI.important("API Issuer: #{has_api_issuer ? '✓' : '✗'}")
+    UI.important("Username: #{has_username ? '✓' : '✗'}")
+    UI.important("Password: #{has_password ? '✓' : '✗'}")
+    
+    # Check for App Store Connect API key or username/password
+    api_key_path = ENV["APP_STORE_CONNECT_API_KEY_PATH"]
+    api_key_id = ENV["APP_STORE_CONNECT_API_KEY_ID"]
+    api_issuer = ENV["APP_STORE_CONNECT_API_ISSUER"]
+    
+    if api_key_path && api_key_id && api_issuer
+      UI.success("Using App Store Connect API key authentication")
+      upload_to_app_store(
+        api_key_path: api_key_path,
+        api_key_id: api_key_id,
+        api_issuer: api_issuer,
+        ipa: ipa_path,
+        skip_waiting_for_build_processing: false,
+        skip_submission: false,
+        skip_app_version_update: false
+      )
+    else
+      # Try username/password authentication
+      username = ENV["FASTLANE_USER"] || ENV["APP_STORE_CONNECT_USERNAME"]
+      password = ENV["FASTLANE_PASSWORD"] || ENV["APP_STORE_CONNECT_PASSWORD"]
+      
+      if username && password
+        UI.success("Using username/password authentication")
+        upload_to_app_store(
+          username: username,
+          ipa: ipa_path,
+          skip_waiting_for_build_processing: false,
+          skip_submission: false,
+          skip_app_version_update: false
+        )
+      else
+        UI.user_error!("App Store Connect credentials not found. Set either:")
+        UI.user_error!("  - API key (all 3 required): APP_STORE_CONNECT_API_KEY_PATH, APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_API_ISSUER")
+        UI.user_error!("  - Username/password: FASTLANE_USER and FASTLANE_PASSWORD")
+        UI.user_error!("")
+        UI.user_error!("Note: Make sure these environment variables are set in your .envrc file")
+        UI.user_error!("and that direnv is loaded (run 'direnv allow' if needed).")
+        UI.user_error!("")
+        UI.user_error!("Current status:")
+        UI.user_error!("  API Key Path: #{has_api_key_path ? '✓' : '✗ (missing)'}")
+        UI.user_error!("  API Key ID: #{has_api_key_id ? '✓' : '✗ (missing)'}")
+        UI.user_error!("  API Issuer: #{has_api_issuer ? '✓' : '✗ (missing)'}")
+        UI.user_error!("  Username: #{has_username ? '✓' : '✗ (missing)'}")
+        UI.user_error!("  Password: #{has_password ? '✓' : '✗ (missing)'}")
+      end
+    end
+    
+    UI.success("✓ iOS app uploaded to App Store Connect successfully")
+    UI.success("Check App Store Connect for processing status.")
+  end
+end
+
+platform :mac do
+  desc "Download certificates and provisioning profiles for macOS"
+  lane :sync_certificates do
+    # Skip provisioning profiles to avoid bundle identifier requirement
+    match(
+      type: "appstore",
+      readonly: false,
+      skip_provisioning_profiles: true
+    )
+  end
+
+  desc "Download certificates in readonly mode (for CI/CD)"
+  lane :sync_certificates_readonly do
+    match(
+      type: "appstore",
+      readonly: true,
+      skip_provisioning_profiles: true
+    )
+  end
+
+  desc "Build and sign macOS XCFramework"
+  lane :build_mac do
+    # Build Rust library for macOS
+    sh("cd halvor-swift/halvor-ffi && cargo build --lib --release --target aarch64-apple-darwin")
+    
+    # Build XCFramework
+    sh("cd halvor-swift && ./build.sh")
+    
+    # Build Swift package
+    sh("cd halvor-swift && swift build")
+  end
+
+  desc "Build macOS app (Rust FFI + Xcode app)"
+  lane :mac_build_app do
+    swift_dir = File.join(project_root, "halvor-swift")
+    xcode_proj = File.join(swift_dir, "HalvorApp.xcodeproj")
+    
+    # Step 1: Build Rust FFI library
+    UI.header("Step 1/2: Building Rust FFI library")
+    build_script = File.join(swift_dir, "build.sh")
+    
+    unless File.exist?(build_script)
+      UI.user_error!("Build script not found: #{build_script}")
+    end
+    
+    sh("cd #{swift_dir} && bash build.sh macos")
+    
+    # Step 2: Create Xcode project if needed
+    unless File.directory?(xcode_proj)
+      UI.important("Xcode project not found. Creating it...")
+      create_script = File.join(swift_dir, "scripts/create-xcode-project.sh")
+      if File.exist?(create_script)
+        sh("cd #{swift_dir} && bash scripts/create-xcode-project.sh")
+      else
+        UI.user_error!("Xcode project not found and create script not available")
+      end
+    end
+    
+    # Step 3: Build macOS app with xcodebuild (disable automatic signing - we'll sign manually later)
+    UI.header("Step 2/2: Building macOS app with Xcode")
+    
+    # Disable automatic code signing during build - we'll sign manually with Fastlane after build
+    # Only build for arm64 since we're on Apple Silicon and XCFramework only has arm64
+    sh("cd #{swift_dir} && xcodebuild -project HalvorApp.xcodeproj -scheme HalvorApp-macOS -configuration Release -derivedDataPath build -arch arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGN_IDENTITY=\"\" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO")
+    
+    app_path = File.join(swift_dir, "build/Build/Products/Release/HalvorApp-macOS.app")
+    unless File.directory?(app_path)
+      UI.user_error!("macOS app not found at #{app_path} after build")
+    end
+    
+    UI.success("✓ macOS app built successfully")
+    UI.success("App location: #{app_path}")
+  end
+
+  desc "Sign macOS XCFramework"
+  lane :sign_mac do
+    # Check if certificates are already available (check for any macOS-compatible certificate)
+    signing_identity_check = sh("security find-identity -v -p codesigning 2>/dev/null | grep -E '(Developer ID Application|Apple Distribution)' | head -1", log: false).strip
+    
+    # Only sync certificates if not found
+    if signing_identity_check.empty?
+      UI.important("No macOS distribution certificates found. Syncing via fastlane match...")
+      begin
+        match(
+          type: "appstore",
+          readonly: true,
+          skip_provisioning_profiles: true
+        )
+      rescue => ex
+        UI.important("Could not sync certificates in readonly mode: #{ex.message}")
+        UI.important("Certificates may already be in Keychain. Continuing with signing...")
+      end
+    else
+      UI.success("Certificates already available in Keychain")
+    end
+    
+    # Use path relative to project root
+    xcframework_path = File.join(project_root, "halvor-swift/Sources/HalvorSwiftFFI/HalvorSwiftFFI.xcframework")
+    
+    unless File.directory?(xcframework_path)
+      UI.user_error!("XCFramework not found at #{xcframework_path}. Run 'make build-mac' or 'fastlane mac build_mac' first")
+    end
+    
+    # Get signing identity - try in order: Developer ID Application, Apple Distribution, Apple Development
+    signing_identity = sh("security find-identity -v -p codesigning | grep 'Developer ID Application' | head -1 | sed -E 's/.*\"([^\"]+)\".*/\\1/'", log: false).strip
+    
+    if signing_identity.empty?
+      # Try Apple Distribution (for App Store)
+      signing_identity = sh("security find-identity -v -p codesigning | grep 'Apple Distribution' | head -1 | sed -E 's/.*\"([^\"]+)\".*/\\1/'", log: false).strip
+      if !signing_identity.empty?
+        UI.important("Using Apple Distribution certificate (for App Store). For outside App Store, use Developer ID Application.")
+      end
+    end
+    
+    if signing_identity.empty?
+      # Fall back to Apple Development certificate (for development only)
+      signing_identity = sh("security find-identity -v -p codesigning | grep 'Apple Development' | head -1 | sed -E 's/.*\"([^\"]+)\".*/\\1/'", log: false).strip
+      if !signing_identity.empty?
+        UI.important("Using Apple Development certificate (for development only). Not suitable for distribution.")
+      end
+    end
+    
+    if signing_identity.empty?
+      UI.user_error!("No macOS signing certificate found. Run 'fastlane mac sync_certificates' to download certificates")
+    end
+    
+    UI.success("Found certificate: #{signing_identity}")
+    
+    # Sign the XCFramework (XCFrameworks don't need --deep)
+    # Note: If you get "unable to build chain" error, intermediate certificates may be missing
+    # Download from: https://www.apple.com/certificateauthority/
+    sign_result = sh("codesign --force --sign \"#{signing_identity}\" --timestamp --options runtime \"#{xcframework_path}\" 2>&1", log: false)
+    
+    if sign_result.include?("errSecInternalComponent") || sign_result.include?("unable to build chain")
+      UI.important("Certificate chain warning detected. This may require intermediate certificates.")
+      UI.important("Download AppleWWDRCAG3.cer from: https://www.apple.com/certificateauthority/")
+      UI.important("Then run: security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db AppleWWDRCAG3.cer")
+      # Continue anyway - the signature might still be partially valid
+    end
+    
+    # Verify signature
+    verify_result = sh("codesign --verify --verbose \"#{xcframework_path}\" 2>&1", log: false)
+    if verify_result.include?("valid on disk") || verify_result.include?("satisfies its Designated Requirement")
+      UI.success("✓ macOS signing complete")
+    else
+      UI.user_error!("Signature verification failed: #{verify_result}")
+    end
+  end
+
+  desc "Sign macOS app bundle"
+  lane :sign_app do
+    # Sync certificates using Fastlane Match (uses Matchfile configuration)
+    UI.important("Syncing certificates via Fastlane Match...")
+    begin
+      match(
+        type: "appstore",
+        readonly: true,
+        skip_provisioning_profiles: true
+      )
+    rescue => ex
+      UI.important("Could not sync certificates in readonly mode: #{ex.message}")
+      UI.important("You may need to set MATCH_PASSWORD environment variable")
+      UI.important("Or run: fastlane mac sync_certificates")
+    end
+    
+    # Use path relative to project root
+    app_path = File.join(project_root, "halvor-swift/build/Build/Products/Release/HalvorApp-macOS.app")
+    
+    unless File.directory?(app_path)
+      UI.user_error!("macOS app not found at #{app_path}. Run 'halvor build mac' first")
+    end
+    
+    # Get signing identity - try in order: Developer ID Application, Apple Distribution, Apple Development
+    signing_identity = sh("security find-identity -v -p codesigning | grep 'Developer ID Application' | head -1 | sed -E 's/.*\"([^\"]+)\".*/\\1/'", log: false).strip
+    
+    if signing_identity.empty?
+      signing_identity = sh("security find-identity -v -p codesigning | grep 'Apple Distribution' | head -1 | sed -E 's/.*\"([^\"]+)\".*/\\1/'", log: false).strip
+    end
+    
+    if signing_identity.empty?
+      signing_identity = sh("security find-identity -v -p codesigning | grep 'Apple Development' | head -1 | sed -E 's/.*\"([^\"]+)\".*/\\1/'", log: false).strip
+    end
+    
+    if signing_identity.empty?
+      UI.user_error!("No macOS signing certificate found. Run 'fastlane mac sync_certificates' first")
+    end
+    
+    UI.success("Found certificate: #{signing_identity}")
+    
+    # Sign the app bundle with --deep to sign all nested code
+    sh("codesign --force --sign \"#{signing_identity}\" --deep --timestamp \"#{app_path}\"")
+    
+    # Verify signature
+    sh("codesign --verify --verbose --deep \"#{app_path}\"")
+    
+    UI.success("✓ macOS app signing complete")
+    UI.success("App location: #{app_path}")
+  end
+end

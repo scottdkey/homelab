@@ -10,7 +10,7 @@ struct ColumnInfo {
     name: String,
     sql_type: String,
     not_null: bool,
-    is_primary_key: bool,
+    _is_primary_key: bool,
     is_unique: bool,
 }
 
@@ -21,7 +21,7 @@ struct UniqueConstraint {
 
 #[derive(Debug)]
 struct TableInfo {
-    name: String,
+    _name: String,
     columns: Vec<ColumnInfo>,
     unique_constraints: Vec<UniqueConstraint>,
 }
@@ -56,7 +56,7 @@ fn get_database_schema_from_pragma(conn: &Connection) -> Result<HashMap<String, 
                 name: name.clone(),
                 sql_type: sql_type.to_uppercase(),
                 not_null: not_null != 0,
-                is_primary_key: pk != 0,
+                _is_primary_key: pk != 0,
                 is_unique: false, // Will be set from indexes
             });
         }
@@ -117,7 +117,7 @@ fn get_database_schema_from_pragma(conn: &Connection) -> Result<HashMap<String, 
         schemas.insert(
             table_name.clone(),
             TableInfo {
-                name: table_name,
+                _name: table_name,
                 columns,
                 unique_constraints,
             },
@@ -328,7 +328,7 @@ fn sql_type_to_rust(sql_type: &str, not_null: bool, column_name: &str) -> String
 /// Generate all CRUD operations for a table
 fn generate_crud_operations(
     struct_name: &str,
-    table_name: &str,
+    _table_name: &str,
     data_fields: &[&ColumnInfo],
     unique_constraints: &[UniqueConstraint],
 ) -> String {

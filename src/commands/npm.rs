@@ -9,11 +9,7 @@ pub fn handle_npm(hostname: Option<&str>, compose_file: &str, service: Option<&s
     let target_host = hostname.unwrap_or("localhost");
     let rt = tokio::runtime::Runtime::new()?;
     if let Some(service_spec) = service {
-        rt.block_on(npm::setup_single_proxy_host(
-            target_host,
-            service_spec,
-            &config,
-        ))?;
+        rt.block_on(npm::setup_single_proxy_host(target_host, service_spec))?;
     } else if !compose_file.is_empty() {
         rt.block_on(npm::setup_proxy_hosts(target_host, compose_file, &config))?;
     } else {

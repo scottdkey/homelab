@@ -53,7 +53,7 @@ struct ProxyHost {
 pub async fn setup_proxy_hosts(
     hostname: &str,
     compose_file: &str,
-    config: &EnvConfig,
+    _config: &EnvConfig,
 ) -> Result<()> {
     let host_config = host::get_host_config_or_error(hostname)?;
 
@@ -302,8 +302,7 @@ async fn create_proxy_host(
 
 pub async fn setup_single_proxy_host(
     hostname: &str,
-    service_spec: &str,
-    config: &EnvConfig,
+    service_spec: &str
 ) -> Result<()> {
     // Parse service spec: "servicename:port" or "servicename" (defaults to port from common services)
     let (service_name, port) = if let Some((name, port_str)) = service_spec.split_once(':') {
