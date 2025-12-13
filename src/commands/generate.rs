@@ -1,8 +1,7 @@
 use anyhow::Result;
 use clap::Subcommand;
-use std::path::PathBuf;
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 pub enum GenerateCommands {
     /// Generate FFI bindings for all platforms
     FfiBindings,

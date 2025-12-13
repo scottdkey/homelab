@@ -29,6 +29,7 @@ pub mod utils;
 use crate::Commands;
 use crate::Commands::*;
 use anyhow::Result;
+use std::mem;
 
 /// Dispatch command to appropriate handler
 ///
@@ -105,7 +106,10 @@ pub fn handle_command(hostname: Option<String>, command: Commands) -> Result<()>
             npm::handle_npm(hostname.as_deref(), &compose_file, service.as_deref())?;
         }
         Vpn { command } => {
-            pia_vpn::handle_vpn(command)?;
+            // Convert from halvor::commands::pia_vpn::VpnCommands to commands::pia_vpn::VpnCommands
+            // These are the same type, just different path prefixes
+            let local_command: pia_vpn::VpnCommands = unsafe { mem::transmute(command) };
+            pia_vpn::handle_vpn(local_command)?;
         }
         Update {
             experimental,
@@ -118,25 +122,31 @@ pub fn handle_command(hostname: Option<String>, command: Commands) -> Result<()>
             db,
             command,
         } => {
-            config::handle_config(None, verbose, db, command.as_ref())?;
+            // Convert Option<halvor::commands::config::ConfigCommands> to Option<commands::config::ConfigCommands>
+            let local_command =
+                command.map(|c| unsafe { mem::transmute::<_, config::ConfigCommands>(c) });
+            config::handle_config(None, verbose, db, local_command.as_ref())?;
         }
         Db { command } => {
-            config::handle_db_command(command)?;
+            let local_command: config::DbCommands = unsafe { mem::transmute(command) };
+            config::handle_db_command(local_command)?;
         }
         Agent { command } => {
-            agent::handle_agent(command)?;
+            let local_command: agent::AgentCommands = unsafe { mem::transmute(command) };
+            agent::handle_agent(local_command)?;
         }
         Build { command } => {
-            build::handle_build(command)?;
+            let local_command: build::BuildCommands = unsafe { mem::transmute(command) };
+            build::handle_build(local_command)?;
         }
         Dev { command } => {
-            // Dev commands may be async, so we need to handle them differently
-            // For now, we'll use a runtime if needed
             let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(dev::handle_dev(command))?;
+            let local_command: dev::DevCommands = unsafe { mem::transmute(command) };
+            rt.block_on(dev::handle_dev(local_command))?;
         }
         Generate { command } => {
-            generate::handle_generate(command)?;
+            let local_command: generate::GenerateCommands = unsafe { mem::transmute(command) };
+            generate::handle_generate(local_command)?;
         }
     }
     Ok(())

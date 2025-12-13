@@ -11,7 +11,6 @@ pub mod provision;
 pub mod smb;
 pub mod sync;
 pub mod tailscale;
-#[cfg(feature = "web-server")]
 pub mod web;
 
 // Re-export commonly used service functions

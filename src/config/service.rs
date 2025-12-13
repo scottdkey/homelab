@@ -1544,7 +1544,10 @@ pub fn handle_config_command(
         ConfigCommands::Ip { .. }
         | ConfigCommands::Hostname { .. }
         | ConfigCommands::Tailscale { .. }
-        | ConfigCommands::BackupPath { .. } => {
+        | ConfigCommands::BackupPath { .. }
+        | ConfigCommands::Commit
+        | ConfigCommands::SetBackup { .. }
+        | ConfigCommands::Backup => {
             anyhow::bail!(
                 "This command requires a hostname. Usage: halvor config <hostname> <command>"
             );

@@ -290,6 +290,15 @@ platform :ios do
     UI.important("Username: #{has_username ? '✓' : '✗'}")
     UI.important("Password: #{has_password ? '✓' : '✗'}")
     
+    # Check for team_id and show actual value if set
+    # Check multiple possible environment variable names
+    team_id_env = ENV["FASTLANE_TEAM_ID"] || ENV["APP_STORE_CONNECT_TEAM_ID"] || ENV["APP_STORE_CONNECT_TEAM"]
+    if team_id_env && !team_id_env.empty?
+      UI.important("Team ID: ✓ (#{team_id_env})")
+    else
+      UI.important("Team ID: ✗ (will use default: 3G798JDTL3)")
+    end
+    
     # Check for App Store Connect API key or username/password
     api_key_path = ENV["APP_STORE_CONNECT_API_KEY_PATH"]
     api_key_id = ENV["APP_STORE_CONNECT_API_KEY_ID"]
@@ -297,13 +306,41 @@ platform :ios do
     
     if api_key_path && api_key_id && api_issuer
       UI.success("Using App Store Connect API key authentication")
+      
+      # Verify API key file exists and expand to absolute path
+      unless File.exist?(api_key_path)
+        UI.user_error!("API key file not found at: #{api_key_path}")
+      end
+      
+      # Expand to absolute path to avoid path resolution issues
+      api_key_path = File.expand_path(api_key_path)
+      UI.important("Using API key file: #{api_key_path}")
+      
+      # Fastlane reads team_id from environment variables automatically
+      # Check multiple possible environment variable names
+      team_id = ENV["FASTLANE_TEAM_ID"] || ENV["APP_STORE_CONNECT_TEAM_ID"] || ENV["APP_STORE_CONNECT_TEAM"] || get_team_id
+      
+      # Ensure team_id is in environment for Spaceship to pick up
+      ENV["FASTLANE_TEAM_ID"] = team_id
+      UI.important("Using Team ID: #{team_id}")
+      
+      # Set up API key authentication and get the api_key object
+      api_key = app_store_connect_api_key(
+        key_id: api_key_id,
+        issuer_id: api_issuer,
+        key_filepath: api_key_path
+      )
+      
+      unless api_key
+        UI.user_error!("Failed to initialize App Store Connect API key. Check your credentials.")
+      end
+      
+      # Upload to App Store - pass both api_key and team_id explicitly
       upload_to_app_store(
-        api_key_path: api_key_path,
-        api_key_id: api_key_id,
-        api_issuer: api_issuer,
+        api_key: api_key,
+        app_identifier: "dev.scottkey.halvor.ios",
+        team_id: team_id,
         ipa: ipa_path,
-        skip_waiting_for_build_processing: false,
-        skip_submission: false,
         skip_app_version_update: false
       )
     else
@@ -313,11 +350,16 @@ platform :ios do
       
       if username && password
         UI.success("Using username/password authentication")
+        
+        # Fastlane reads team_id from environment variables automatically
+        # Check multiple possible environment variable names
+        team_id = ENV["FASTLANE_TEAM_ID"] || ENV["APP_STORE_CONNECT_TEAM_ID"] || ENV["APP_STORE_CONNECT_TEAM"] || get_team_id
+        
         upload_to_app_store(
           username: username,
+          app_identifier: "dev.scottkey.halvor.ios",
+          team_id: team_id,
           ipa: ipa_path,
-          skip_waiting_for_build_processing: false,
-          skip_submission: false,
           skip_app_version_update: false
         )
       else

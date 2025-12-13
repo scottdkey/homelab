@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::process::Command as StdCommand;
 use std::process::{Command, Stdio};
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 pub enum DevCommands {
     /// macOS development mode
     Mac,

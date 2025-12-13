@@ -1,10 +1,11 @@
+use crate::utils::env;
 use anyhow::{Context, Result};
 use clap::Subcommand;
 use serde_json;
 use std::path::PathBuf;
 use std::process::Command;
 
-#[derive(Subcommand)]
+#[derive(Subcommand, Clone)]
 pub enum BuildCommands {
     /// Build iOS app (always signed)
     Ios {
@@ -256,8 +257,8 @@ fn build_web(release: bool) -> Result<()> {
 
 fn build_web_docker(release: bool, push: bool) -> Result<()> {
     use crate::services::docker::build::{
-        build_image, check_docker_auth, generate_ghcr_tags, get_git_hash, get_github_user,
-        push_images, DockerBuildConfig,
+        DockerBuildConfig, build_image, check_docker_auth, generate_ghcr_tags, get_git_hash,
+        get_github_user, push_images,
     };
     use std::path::PathBuf;
 
@@ -523,14 +524,17 @@ fn push_ios_to_app_store() -> Result<()> {
 
     // Upload to App Store Connect using Fastlane
     // Pass the IPA path as an environment variable so Fastlane can use it
-    // Also ensure environment variables from .envrc are passed through
+    // Use direnv exec to ensure .envrc environment variables are loaded
     println!("Uploading to App Store Connect via Fastlane...");
 
-    let mut fastlane_cmd = Command::new("fastlane");
-    fastlane_cmd
-        .args(["ios", "ios_upload_to_app_store"])
-        .current_dir("fastlane")
-        .env("IPA_PATH", ipa_path_str);
+    // Use the reusable direnv utility to load environment variables
+    let base_dir = PathBuf::from(".");
+    let mut fastlane_cmd = env::shell_command_with_direnv(
+        &base_dir,
+        "cd fastlane && fastlane ios ios_upload_to_app_store",
+        Some(&base_dir),
+    );
+    fastlane_cmd.env("IPA_PATH", ipa_path_str);
 
     // Pass through App Store Connect credentials from environment
     // Debug: Show which credentials are available
@@ -593,16 +597,15 @@ fn push_ios_to_app_store() -> Result<()> {
         eprintln!("  → Found .p8 file: {}", file_name);
         let temp_key_path = std::env::temp_dir().join("app_store_connect_api_key.p8");
 
+        // Use op:// reference format to download the file
+        let file_ref = format!("op://{}/{}/{}", vault, item, file_name);
+        eprintln!("  → Downloading file using reference: {}", file_ref);
+
         let output = Command::new("op")
             .args([
-                "item",
-                "get",
-                &item,
-                "--vault",
-                &vault,
-                "--file",
-                file_name,
-                "--output",
+                "read",
+                &file_ref,
+                "--out-file",
                 temp_key_path.to_str().unwrap(),
             ])
             .output()
@@ -626,12 +629,14 @@ fn push_ios_to_app_store() -> Result<()> {
                 let temp_key_path = std::env::temp_dir().join("app_store_connect_api_key.p8");
 
                 let status = Command::new("op")
-                    .args(["read", &path, "--outfile", temp_key_path.to_str().unwrap()])
+                    .args(["read", &path, "--out-file", temp_key_path.to_str().unwrap()])
                     .status()
                     .context("Failed to download API key from 1Password")?;
 
                 if !status.success() {
-                    anyhow::bail!("Failed to download API key from 1Password. Make sure you're signed in: op signin");
+                    anyhow::bail!(
+                        "Failed to download API key from 1Password. Make sure you're signed in: op signin"
+                    );
                 }
 
                 println!("  ✓ Downloaded API key to temporary file");
@@ -645,14 +650,18 @@ fn push_ios_to_app_store() -> Result<()> {
         }
         _ => {
             // Try to download from 1Password using the helper function
-            eprintln!("  → APP_STORE_CONNECT_API_KEY_PATH not set, attempting to download from 1Password...");
+            eprintln!(
+                "  → APP_STORE_CONNECT_API_KEY_PATH not set, attempting to download from 1Password..."
+            );
             match download_api_key_from_1password() {
                 Ok(Some(path)) => {
                     eprintln!("  ✓ Successfully downloaded API key file");
                     Some(path)
                 }
                 Ok(None) => {
-                    eprintln!("  ⚠️  Could not download API key file from 1Password (file not found or download failed)");
+                    eprintln!(
+                        "  ⚠️  Could not download API key file from 1Password (file not found or download failed)"
+                    );
                     None
                 }
                 Err(e) => {
@@ -676,6 +685,9 @@ fn push_ios_to_app_store() -> Result<()> {
     let credential_vars = [
         "APP_STORE_CONNECT_API_KEY_ID",
         "APP_STORE_CONNECT_API_ISSUER",
+        "FASTLANE_TEAM_ID",
+        "APP_STORE_CONNECT_TEAM_ID",
+        "APP_STORE_CONNECT_TEAM", // Also check this variant
         "FASTLANE_USER",
         "APP_STORE_CONNECT_USERNAME",
         "FASTLANE_PASSWORD",

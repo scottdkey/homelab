@@ -34,6 +34,7 @@ fastlane/match_output
 AppleWWDRCAG3.cer
 halvor-swift/halvor-ffi-macro/target
 halvor-ffi-macro/target
+crates/halvor-ffi-macro/target
 halvor-swift/build
 halvor-web/node_modules
 halvor-web/.svelte-kit
